@@ -29,6 +29,7 @@ This package is compatible with UniFi OS 2.x+ and is known to work on the follow
 - UniFi Dream Machine Pro (UDM Pro)
 - UniFi Dream Router (UDR)
 - UniFi Dream Machine Special Edition (UDM-SE)
+- Unifi Cloud Gateway Max (UCG-MAX)
 - UniFi Cloud Key Gen 2 (UCK-G2)
 - UniFi Cloud Key Gen 2 Plus (UCK-G2-PLUS)
 - UniFi NAS Pro
