@@ -18,7 +18,7 @@ echo "Package Contents:"
 ls -l "$WORKDIR"/*
 echo ""
 
-echo "Building tailscale-udm package"
+echo "Building tailscale-unifi package"
 mkdir -p "${DEST}"
 # Assuming GNU tar with the --owner and --group args
-tar czf "${DEST}/tailscale-udm.tgz" -C "${WORKDIR}" tailscale on_boot.d --owner=0 --group=0
+tar czf "${DEST}/tailscale-unifi.tgz" -C "${WORKDIR}" tailscale on_boot.d --owner=0 --group=0

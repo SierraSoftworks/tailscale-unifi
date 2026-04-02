@@ -1,21 +1,21 @@
 #!/bin/sh
 set -e
 
-# Determine the latest version of the Tailscale UDM package
+# Determine the latest version of the Tailscale UniFi package
 VERSION="${1:-latest}"
 
 if [ "${VERSION}" = "latest" ]; then
   # shellcheck disable=SC2034 # Disable incorrect unused variable warning
-  PACKAGE_URL="https://github.com/SierraSoftworks/tailscale-udm/releases/latest/download/tailscale-udm.tgz"
+  PACKAGE_URL="https://github.com/SierraSoftworks/tailscale-unifi/releases/latest/download/tailscale-unifi.tgz"
 else
-  PACKAGE_URL="https://github.com/SierraSoftworks/tailscale-udm/releases/download/${VERSION}/tailscale-udm.tgz"
+  PACKAGE_URL="https://github.com/SierraSoftworks/tailscale-unifi/releases/download/${VERSION}/tailscale-unifi.tgz"
 fi
 
 # Setup a temporary directory to download the package
 WORKDIR="$(mktemp -d || exit 1)"
 trap 'rm -rf ${WORKDIR}' EXIT
 
-# Download the Tailscale-UDM package
+# Download the Tailscale-UniFi package
 curl -sSLf --ipv4 -o "${WORKDIR}/tailscale.tgz" "$PACKAGE_URL"
 
 if [ -x "$(which ubnt-device-info)" ]; then

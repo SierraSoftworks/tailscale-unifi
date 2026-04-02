@@ -1,4 +1,4 @@
-# Tailscale on UniFi Dream Machine
+# Tailscale on UniFi OS
 
 This repo contains the scripts necessary to install and run a [Tailscale](https://tailscale.com) instance on your [UniFi Cloud Gateways](https://ui.com/cloud-gateways).
 It does so by piggybacking on the excellent [unifi-common](https://github.com/unifi-utilities/unifi-common) to provide a persistent service and run using Tailscale's  networking features.
@@ -6,11 +6,11 @@ It does so by piggybacking on the excellent [unifi-common](https://github.com/un
 ## Installation
 
 1. Run the `install.sh` script to install the latest version of the
-   Tailscale UDM package on your UDM.
+   Tailscale UniFi package on your device.
 
    ```sh
-   # Install the latest version of Tailscale UDM
-   curl -sSLq https://raw.github.com/SierraSoftworks/tailscale-udm/main/install.sh | sh
+   # Install the latest version of Tailscale UniFi
+   curl -sSLq https://raw.github.com/SierraSoftworks/tailscale-unifi/main/install.sh | sh
    ```
 
 2. Run `tailscale up` to start Tailscale.
@@ -41,7 +41,7 @@ This package is **NOT** compatible with the following variants of UniFi devices:
 - Any variant of a UniFi device running UniFi OS 1.x (the legacy OS on UDM/UDM Pro)
 - Any variant of an EoL UniFi device not listed above
 
-We expect that it should function on most consumer-grade UniFi devices without issue, but if you run into any problems, please [open an issue](https://github.com/SierraSoftworks/tailscale-udm/issues) and provide the following information:
+We expect that it should function on most consumer-grade UniFi devices without issue, but if you run into any problems, please [open an issue](https://github.com/SierraSoftworks/tailscale-unifi/issues) and provide the following information:
 
 - The device you are running on (e.g., UDM Pro)
 - The UniFi OS version you are running (e.g., 2.4.8 - this can be found by running `/usr/bin/ubnt-device-info firmware_detail`)
@@ -140,10 +140,10 @@ sysctl net.ipv4.ip_forward
 
 #### Switch to TUN mode
 
-The quickest way to switch to TUN mode is to install the latest version of tailscale-udm, which will automatically configure Tailscale to use TUN mode.
+The quickest way to switch to TUN mode is to install the latest version of tailscale-unifi, which will automatically configure Tailscale to use TUN mode.
 
 ```bash
-curl -sSLq https://raw.github.com/SierraSoftworks/tailscale-udm/main/install.sh | sh
+curl -sSLq https://raw.github.com/SierraSoftworks/tailscale-unifi/main/install.sh | sh
 ```
 
 ##### Manually Switching to TUN Mode
@@ -197,9 +197,9 @@ For more details on available options, see the official [tailscale up command do
 
 ### Why can't I see a network interface for Tailscale?
 
-Legacy versions of the tailscale-udm script configured Tailscale to run in userspace networking mode on the UDM rather than as a TUN interface, which meant you wouldn't see it in the `ip addr` list.
+Legacy versions of the tailscale-unifi script configured Tailscale to run in userspace networking mode on the UDM rather than as a TUN interface, which meant you wouldn't see it in the `ip addr` list.
 
-If you are running an older version of tailscale-udm, you can switch to TUN mode by following the [instructions above](#manually-switching-to-tun-mode).
+If you are running an older version of tailscale-unifi, you can switch to TUN mode by following the [instructions above](#manually-switching-to-tun-mode).
 
 ### Does this support Tailscale SSH?
 
@@ -246,7 +246,7 @@ On UniFi OS 2.x+, a systemd timer is automatically installed when you generate y
 
 [tailscale-pr10828]: https://github.com/tailscale/tailscale/pull/10828
 [tailscale-pr14452]: https://github.com/tailscale/tailscale/pull/14452
-[tailnet-routing-discussion]: https://github.com/SierraSoftworks/tailscale-udm/discussions/51
+[tailnet-routing-discussion]: https://github.com/SierraSoftworks/tailscale-unifi/discussions/51
 [tailscale-subnet-router-docs]: https://tailscale.com/kb/1019/subnets
 [tailscale-up-docs]: https://tailscale.com/kb/1241/tailscale-up
 [tailscale-userspace-networking-docs]: https://tailscale.com/kb/1112/userspace-networking
