@@ -10,7 +10,7 @@ It does so by piggybacking on the excellent [unifi-common](https://github.com/un
 
    ```sh
    # Install the latest version of Tailscale UniFi
-   curl -sSLq https://raw.github.com/SierraSoftworks/tailscale-unifi/main/install.sh | sh
+   curl -sSLq https://raw.githubusercontent.com/SierraSoftworks/tailscale-unifi/main/install.sh | sh
    ```
 
 2. Run `tailscale up` to start Tailscale.
