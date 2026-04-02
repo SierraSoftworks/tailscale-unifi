@@ -13,6 +13,8 @@ jobs:
       - run: ./build/package.sh ./ ./dist
       - uses: SierraSoftworks/gh-releases@v1.0.8
         with:
-          files: ./dist/tailscale-unifi.tgz
+          files: |
+            ./dist/tailscale-unifi.tgz
+            ./dist/tailscale-unifi.tgz | tailscale-udm.tgz
           overwrite: 'true'
           token: '${{ secrets.GITHUB_TOKEN }}'
