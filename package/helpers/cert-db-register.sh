@@ -39,12 +39,12 @@ parse_cert_date() {
 
 run_psql() {
     if command -v sudo >/dev/null 2>&1; then
-        sudo -u unifi-core env LANG=C LC_ALL=C psql -v ON_ERROR_STOP=1 -h /run/postgresql -p 5432 -d unifi-core "$@"
+        sudo -u unifi-core env LANG=C LC_ALL=C psql -v ON_ERROR_STOP=1 -h /run/postgresql -p 5432 -d unifi-core
         return $?
     fi
 
     if command -v psql >/dev/null 2>&1; then
-        env LANG=C LC_ALL=C psql -v ON_ERROR_STOP=1 -h /run/postgresql -p 5432 -U unifi-core -d unifi-core "$@"
+        env LANG=C LC_ALL=C psql -v ON_ERROR_STOP=1 -h /run/postgresql -p 5432 -U unifi-core -d unifi-core
         return $?
     fi
 
