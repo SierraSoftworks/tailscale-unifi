@@ -1,7 +1,7 @@
 # Tailscale on UniFi OS
 
 This repo contains the scripts necessary to install and run a [Tailscale](https://tailscale.com) instance on your [UniFi Cloud Gateways](https://ui.com/cloud-gateways).
-It does so by piggybacking on the excellent [unifi-common](https://github.com/unifi-utilities/unifi-common) to provide a persistent service and run using Tailscale's  networking features.
+It does so by piggybacking on the excellent [unifi-common](https://github.com/unifi-utilities/unifi-common) to provide a persistent service and run using Tailscale's networking features.
 
 ## Installation
 
@@ -30,6 +30,7 @@ This package is compatible with UniFi OS 2.x or later and is known to work on th
 - Any variant of the UniFi Dream Wall (UDW)
 - Any variant of the UniFi Express (UX)
 - Any variant of the UniFi NAS Pro (UNAS-PRO)
+  > **Note:** This device is only supported via userspace networking mode, as the kernel on this device does not support the required modules.
 - Any variant of a UniFi device running UniFi OS 2.x or later not listed above or below
 
 This package is **NOT** compatible with the following variants of UniFi devices:
@@ -38,7 +39,7 @@ This package is **NOT** compatible with the following variants of UniFi devices:
 - Any variant of the UniFi Security Gateway (USG)
 - Any variant of the UniFi Travel Router (UTR)
 - Any variant of a UniFi device running BusyBox
-- Any variant of a UniFi device running UniFi OS 1.x (the legacy OS on UDM/UDM Pro)
+- Any variant of a UniFi device running UniFi OS 1.x (Legacy OS w/ Podman)
 - Any variant of an EoL UniFi device not listed above
 
 We expect that it should function on most consumer-grade UniFi devices without issue, but if you run into any problems, please [open an issue](https://github.com/SierraSoftworks/tailscale-unifi/issues) and provide the following information:
@@ -47,7 +48,7 @@ We expect that it should function on most consumer-grade UniFi devices without i
 - The UniFi OS version you are running (e.g., 2.4.8 - this can be found by running `/usr/bin/ubnt-device-info firmware_detail`)
 - The steps you took to install Tailscale and any errors you encountered.
 
-**WARNING:** This package is no longer compatible with UniFi OS 1.x (the legacy OS on UDM/UDM Pro). If you are running UniFi OS 1.x and cannot upgrade to the latest stable version, use the legacy version of this package, available in the `legacy` branch of this repository. The legacy version is no longer maintained and may not work with the latest Tailscale release.
+**WARNING:** This package is no longer compatible with UniFi OS 1.x (Legacy OS w/ Podman). If you are running UniFi OS 1.x and cannot upgrade to the latest stable version, use the legacy version of this package, available in the `legacy` branch of this repository. The legacy version is no longer maintained and may not work with the latest Tailscale release.
 
 ## Management
 
