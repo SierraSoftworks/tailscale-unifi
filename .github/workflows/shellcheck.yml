@@ -9,17 +9,17 @@ on:
 jobs:
   shellcheck:
     name: Shellcheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v6.0.2
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-    - name: Register ShellCheck problem matchers
-      uses: lumaxis/shellcheck-problem-matchers@v2.1.0
+      - name: Register ShellCheck problem matchers
+        uses: lumaxis/shellcheck-problem-matchers@b02a1715a00c729b20eed3ebb7edf56fa9a433ba # 2.1.0
 
-    - name: Run ShellCheck
-      uses: ludeeus/action-shellcheck@2.0.0
-      env:
-        SHELLCHECK_OPTS: -e SC2148 -x
-      with:
-        check_together: 'yes'
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
+        env:
+          SHELLCHECK_OPTS: -e SC2148 -x
+        with:
+          check_together: "yes"
