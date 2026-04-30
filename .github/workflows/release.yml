@@ -7,14 +7,14 @@ name: Release
 jobs:
   release:
     name: "Package"
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
     steps:
-      - uses: actions/checkout@v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - run: ./build/package.sh ./ ./dist
-      - uses: SierraSoftworks/gh-releases@v1.0.9
+      - uses: SierraSoftworks/gh-releases@fe589e8c033b997e31780791f3cab3246d0726d3 # v1.0.9
         with:
           files: |
             ./dist/tailscale-unifi.tgz
             ./dist/tailscale-unifi.tgz | tailscale-udm.tgz
-          overwrite: 'true'
-          token: '${{ secrets.GITHUB_TOKEN }}'
+          overwrite: "true"
+          token: "${{ secrets.GITHUB_TOKEN }}"
