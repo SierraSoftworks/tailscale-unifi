@@ -13,7 +13,7 @@ fi
 
 # Setup a temporary directory to download the package
 WORKDIR="$(mktemp -d || exit 1)"
-trap 'rm -rf ${WORKDIR}' EXIT
+trap 'rm -rf "${WORKDIR}"' EXIT
 
 # Download the Tailscale-UniFi package
 curl -sSLf --ipv4 -o "${WORKDIR}/tailscale.tgz" "$PACKAGE_URL"
@@ -68,7 +68,7 @@ fi
 
 # Run the setup script to ensure that Tailscale is installed
 # shellcheck source=package/manage.sh
-"$PACKAGE_ROOT/manage.sh" install "${TAILSCALE_VERSION}"
+"$PACKAGE_ROOT/manage.sh" install "${TAILSCALE_VERSION:-$VERSION}"
 
 # Start the tailscaled daemon
 # shellcheck source=package/manage.sh

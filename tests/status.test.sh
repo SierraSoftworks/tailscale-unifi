@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -e
 
 ROOT="$(dirname "$(dirname "$0")")"
@@ -12,17 +12,21 @@ export PACKAGE_ROOT="${ROOT}/package"
 export TAILSCALE_ROOT="${WORKDIR}"
 export TAILSCALED_SOCK="${WORKDIR}/tailscaled.sock"
 
+SYSTEMCTL_INACTIVE_EXIT=1
+SYSTEMCTL_ACTIVE_EXIT=0
+
+
 export PATH="${WORKDIR}:/usr/bin:/bin:/usr/sbin:/sbin"
 mock "${WORKDIR}/ubnt-device-info" "2.0.0"
-mock "${WORKDIR}/systemctl" "" 1
+mock "${WORKDIR}/systemctl" "" "${SYSTEMCTL_INACTIVE_EXIT}"
 
 assert_eq "$("${ROOT}/package/manage.sh" status)" "Tailscale is not installed" "Tailscaled should be reported as not installed"
 
 mock "${WORKDIR}/tailscale" "0.0.0"
 
-mock "${WORKDIR}/systemctl" "" 1
+mock "${WORKDIR}/systemctl" "" "${SYSTEMCTL_INACTIVE_EXIT}"
 assert_eq "$("${ROOT}/package/manage.sh" status)" "Tailscaled is not running" "Tailscaled should be reported as not running"
 
-mock "${WORKDIR}/systemctl" "" 0
+mock "${WORKDIR}/systemctl" "" "${SYSTEMCTL_ACTIVE_EXIT}"
 assert_eq "$("${ROOT}/package/manage.sh" status)" "Tailscaled is running
 0.0.0" "Tailscaled should be reported as running with the version number"
