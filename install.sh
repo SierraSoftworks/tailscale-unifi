@@ -39,6 +39,8 @@ elif [ -f "/usr/lib/version" ]; then
     OS_VERSION="$(sed -e 's/UNASPRO.*.v\(.\)\..*/\1/' /usr/lib/version)"
   elif [ "$(grep -c '^UNAS.*\.v[0-9]\.' /usr/lib/version)" = '1' ]; then
     OS_VERSION="$(sed -e 's/UNAS.*.v\(.\)\..*/\1/' /usr/lib/version)"
+  elif [ "$(grep -c '^UNVRPRO.*\.v[0-9]\.' /usr/lib/version)" = '1' ]; then
+    OS_VERSION="$(sed -e 's/UNVRPRO.*.v\(.\)\..*/\1/' /usr/lib/version)"
   else
     echo "Could not detect OS Version.  /usr/lib/version contains:"
     cat /usr/lib/version
