@@ -21,15 +21,14 @@ It does so by piggybacking on the excellent [unifi-common](https://github.com/un
 
 **ⓘ You can confirm your UniFi OS (UOS) version by running `/usr/bin/ubnt-device-info firmware_detail`**
 
-This package is compatible with UniFi OS 2.x or later and is known to work on the following variants of UniFi devices:
+This package is compatible with UniFi OS 2.x or later and is known to work on the following UniFi families:
 
-- Any variant of the UniFi Cloud Gateway (UCG)
-- Any variant of the UniFi Cloud Key Gen 2 (UCK-G2)
-- Any variant of the UniFi Dream Machine (UDM)
-- Any variant of the UniFi Dream Router (UDR)
-- Any variant of the UniFi Dream Wall (UDW)
-- Any variant of the UniFi Express (UX)
-- Any variant of the UniFi NAS Pro (UNAS-PRO)
+- Any variant of the UniFi Cloud Gateway families
+- Any variant of the UniFi Control Plane families
+- Any variant of the UniFi Independent Gateway families
+- Any variant of the UniFi Next-Gen NVR families
+  > **Note:** This device is only supported via userspace networking mode, as the kernel on this device does not support the required modules.
+- Any variant of the UniFi Next-Gen Storage families
   > **Note:** This device is only supported via userspace networking mode, as the kernel on this device does not support the required modules.
 - Any variant of a UniFi device running UniFi OS 2.x or later not listed above or below
 
