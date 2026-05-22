@@ -3,6 +3,7 @@ set -e
 
 PACKAGE_ROOT="${PACKAGE_ROOT:-"$(dirname -- "$(readlink -f -- "$0";)")"}"
 export TAILSCALE_ROOT="${TAILSCALE_ROOT:-/data/tailscale}"
+SYSTEMD_UNIT_DIR="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
 
 tailscale_status() {
   if ! command -v tailscale >/dev/null 2>&1; then
@@ -96,23 +97,22 @@ tailscale_install() {
       exit 1
   }
 
-  if [ ! -L "/etc/systemd/system/tailscale-install.service" ]; then
-      if [ ! -e "${TAILSCALE_ROOT}/tailscale-install.service" ]; then
-          rm -f /etc/systemd/system/tailscale-install.service
-      fi
+  # Remove any pre-existing file or symlink at the destination before copying.
+  # A plain `cp -f` does NOT pre-unlink the destination; it only retries if the
+  # open fails.  On UDM-SE /data -> /ssd1/.data, so a v3.2.0 symlink at
+  # ${SYSTEMD_UNIT_DIR}/tailscale-install.{service,timer} pointing back into
+  # /data/tailscale/ causes both source and destination to canonicalise to the
+  # same inode, and cp aborts with "are the same file".  Explicitly removing the
+  # destination first handles symlinks, hard-links, and regular files uniformly.
+  # /etc lives on the overlay root (always mounted), so the copied regular files
+  # are visible to systemd on every boot even before /ssd1 is mounted.
+  echo "Installing pre-start script to install Tailscale on firmware updates."
+  rm -f "${SYSTEMD_UNIT_DIR}/tailscale-install.service"
+  cp "${PACKAGE_ROOT}/tailscale-install.service" "${SYSTEMD_UNIT_DIR}/tailscale-install.service"
 
-      echo "Installing pre-start script to install Tailscale on firmware updates."
-      ln -s "${TAILSCALE_ROOT}/tailscale-install.service" /etc/systemd/system/tailscale-install.service
-  fi
-
-  if [ ! -L "/etc/systemd/system/tailscale-install.timer" ]; then
-      if [ ! -e "${TAILSCALE_ROOT}/tailscale-install.timer" ]; then
-          rm -f /etc/systemd/system/tailscale-install.timer
-      fi
-
-      echo "Installing auto-update timer to ensure that Tailscale is kept installed and up to date."
-      ln -s "${TAILSCALE_ROOT}/tailscale-install.timer" /etc/systemd/system/tailscale-install.timer
-  fi
+  echo "Installing auto-update timer to ensure that Tailscale is kept installed and up to date."
+  rm -f "${SYSTEMD_UNIT_DIR}/tailscale-install.timer"
+  cp "${PACKAGE_ROOT}/tailscale-install.timer" "${SYSTEMD_UNIT_DIR}/tailscale-install.timer"
 
   systemctl daemon-reload
   systemctl enable tailscale-install.service
@@ -127,15 +127,15 @@ tailscale_uninstall() {
   rm -f /etc/apt/sources.list.d/tailscale.list || true
 
   systemctl disable tailscale-install.service || true
-  rm -f /lib/systemd/system/tailscale-install.service || true
+  rm -f "${SYSTEMD_UNIT_DIR}/tailscale-install.service" || true
 
   systemctl disable tailscale-install.timer || true
-  rm -f /lib/systemd/system/tailscale-install.timer || true
+  rm -f "${SYSTEMD_UNIT_DIR}/tailscale-install.timer" || true
 
   systemctl disable tailscale-cert-renewal.timer || true
   systemctl stop tailscale-cert-renewal.timer || true
-  rm -f /lib/systemd/system/tailscale-cert-renewal.service || true
-  rm -f /lib/systemd/system/tailscale-cert-renewal.timer || true
+  rm -f "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.service" || true
+  rm -f "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.timer" || true
 }
 
 tailscale_has_update() {
@@ -185,17 +185,18 @@ tailscale_cert_generate() {
       echo ""
       echo "Certificate expires in 90 days. Use '$0 cert renew $TAILSCALE_HOSTNAME' to renew."
 
-      # Install auto-renewal timer if not already installed
-      if [ ! -L "/etc/systemd/system/tailscale-cert-renewal.service" ]; then
-          if [ -f "${TAILSCALE_ROOT}/tailscale-cert-renewal.service" ] && [ -f "${TAILSCALE_ROOT}/tailscale-cert-renewal.timer" ]; then
-              echo "Installing certificate auto-renewal timer..."
-              ln -s "${TAILSCALE_ROOT}/tailscale-cert-renewal.service" /etc/systemd/system/
-              ln -s "${TAILSCALE_ROOT}/tailscale-cert-renewal.timer" /etc/systemd/system/
-              systemctl daemon-reload
-              systemctl enable tailscale-cert-renewal.timer
-              systemctl start tailscale-cert-renewal.timer
-              echo "Certificate will be automatically renewed weekly"
-          fi
+      # Remove any pre-existing file or symlink before copying (see comment in
+      # tailscale_install for the full explanation of why rm -f is required).
+      if [ -f "${PACKAGE_ROOT}/tailscale-cert-renewal.service" ] && [ -f "${PACKAGE_ROOT}/tailscale-cert-renewal.timer" ]; then
+          echo "Installing certificate auto-renewal timer..."
+          rm -f "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.service"
+          cp "${PACKAGE_ROOT}/tailscale-cert-renewal.service" "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.service"
+          rm -f "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.timer"
+          cp "${PACKAGE_ROOT}/tailscale-cert-renewal.timer" "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.timer"
+          systemctl daemon-reload
+          systemctl enable tailscale-cert-renewal.timer
+          systemctl start tailscale-cert-renewal.timer
+          echo "Certificate will be automatically renewed weekly"
       fi
   else
       echo "Failed to generate certificate. Ensure:"
