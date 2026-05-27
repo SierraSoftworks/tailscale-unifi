@@ -10,6 +10,11 @@ trap 'rm -rf ${WORKDIR}' EXIT
 export PATH="${WORKDIR}:${PATH}"
 export TAILSCALE_ROOT="${WORKDIR}"
 export TAILSCALED_SOCK="${WORKDIR}/tailscaled.sock"
+export SYSTEMD_UNIT_DIR="${WORKDIR}/systemd"
+
+MANAGE_SH="${ROOT}/package/manage.sh"
+
+mkdir -p "${SYSTEMD_UNIT_DIR}"
 
 mock "${WORKDIR}/ubnt-device-info" "2.0.0"
 touch "${TAILSCALED_SOCK}"  # Create the tailscaled socket for testing
@@ -23,6 +28,18 @@ case "\$1" in
         if [ ! -f "${WORKDIR}/tailscaled.sock" ]; then
             exit 1
         fi
+        ;;
+    "enable")
+        echo "--## systemctl enable \$2 ##--"
+        touch "${WORKDIR}/\$2.enabled"
+        ;;
+    "daemon-reload")
+        echo "--## systemctl daemon-reload ##--"
+        touch "${WORKDIR}/systemctl.daemon-reload"
+        ;;
+    "start")
+        echo "--## systemctl start \$2 ##--"
+        touch "${WORKDIR}/\$2.started"
         ;;
     *)
         echo "Unexpected command: \${1}"
@@ -62,7 +79,6 @@ mock_tailscale_cert() {
     return 1
 }
 
-# Override tailscale binary variable for testing
 case "\$1" in
     cert)
         shift
@@ -89,8 +105,7 @@ chmod +x "${WORKDIR}/tailscale"
 test_cert_generate() {
     touch "$TAILSCALED_SOCK"  # Mock running state
 
-    # Test generate
-    output=$("${ROOT}/package/manage.sh" cert generate 2>&1)
+    output=$("$MANAGE_SH" cert generate 2>&1)
     assert_contains "$output" "Certificate generated successfully" "Output contains success message"
     assert_file_exists "$TAILSCALE_ROOT/certs/test-host.example.ts.net.crt" "Certificate file exists"
     assert_file_exists "$TAILSCALE_ROOT/certs/test-host.example.ts.net.key" "Key file exists"
@@ -113,27 +128,23 @@ test_cert_renew() {
     echo "OLD CERT" > "$TAILSCALE_ROOT/certs/test-host.example.ts.net.crt"
     echo "OLD KEY" > "$TAILSCALE_ROOT/certs/test-host.example.ts.net.key"
 
-    # Test renew
-    output=$("${ROOT}/package/manage.sh" cert renew 2>&1)
+    output=$("$MANAGE_SH" cert renew 2>&1)
     assert_contains "$output" "Certificate renewed successfully" "Output contains success message"
 
-    # Check that certificates were updated
     cert_content=$(cat "$TAILSCALE_ROOT/certs/test-host.example.ts.net.crt")
     assert_eq "CERTIFICATE" "$cert_content" "Certificate content is correct"
 
     rm -rf "$TAILSCALE_ROOT/certs"
 }
 
-# Test certificate listing
+# Test certificate info
 test_cert_info() {
     mkdir -p "$TAILSCALE_ROOT/certs"
 
-    # Create test certificates
     echo "CERT" > "$TAILSCALE_ROOT/certs/test-host.example.ts.net.crt"
     echo "KEY" > "$TAILSCALE_ROOT/certs/test-host.example.ts.net.key"
 
-    # Test list
-    output=$("${ROOT}/package/manage.sh" cert info 2>&1)
+    output=$("$MANAGE_SH" cert info 2>&1)
     assert_contains "$output" "Certificate:" "Output contains Certificate path"
     assert_contains "$output" "test-host.example.ts.net.crt" "Output contains test-host.example.ts.net.crt"
     assert_contains "$output" "Private key:" "Output contains Private key path"
@@ -146,22 +157,52 @@ test_cert_info() {
 test_cert_not_running() {
     mkdir -p "$TAILSCALE_ROOT"
 
-    # Mock not running state
     rm -f "$TAILSCALED_SOCK"
 
-    # Test generate when not running
-    output=$("${ROOT}/package/manage.sh" cert generate 2>&1 || true)
+    output=$("$MANAGE_SH" cert generate 2>&1) || true
     assert_contains "$output" "Tailscale is not running" "Output contains not running message"
 }
 
 # Test help command
 test_cert_help() {
-    output=$("${ROOT}/package/manage.sh" cert help 2>&1)
+    output=$("$MANAGE_SH" cert help 2>&1)
     assert_contains "$output" "Usage:" "Output contains usage title"
     assert_contains "$output" "generate" "Output contains generate command"
     assert_contains "$output" "renew" "Output contains renew command"
     assert_contains "$output" "info" "Output contains info command"
     assert_contains "$output" "install-unifi" "Output contains install-unifi command"
+}
+
+# Test cert-renewal unit upgrade-from-symlink path
+# Simulate a v3.2.0 install where tailscale-cert-renewal.{service,timer} in
+# SYSTEMD_UNIT_DIR are symlinks pointing back into PACKAGE_ROOT.
+# The same-inode cp failure that affects the install path applies here.
+test_cert_generate_upgrade_from_symlink() {
+    touch "$TAILSCALED_SOCK"  # Mock running state
+
+    # Only run this fixture if the package ships the cert-renewal units;
+    # skip silently if they are absent (e.g. in minimal test environments).
+    if [ ! -f "${ROOT}/package/tailscale-cert-renewal.service" ] || \
+       [ ! -f "${ROOT}/package/tailscale-cert-renewal.timer" ]; then
+        return 0
+    fi
+
+    ln -sf "${ROOT}/package/tailscale-cert-renewal.service" \
+           "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.service"
+    ln -sf "${ROOT}/package/tailscale-cert-renewal.timer" \
+           "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.timer"
+
+    output=$("$MANAGE_SH" cert generate 2>&1)
+    assert_contains "$output" "Certificate generated successfully" \
+        "cert generate succeeds when cert-renewal units are pre-existing symlinks"
+
+    [[ ! -L "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.service" ]]
+    assert "tailscale-cert-renewal.service should be a regular file after upgrade, not a symlink"
+
+    [[ ! -L "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.timer" ]]
+    assert "tailscale-cert-renewal.timer should be a regular file after upgrade, not a symlink"
+
+    rm -rf "$TAILSCALE_ROOT/certs"
 }
 
 # Run tests
@@ -170,5 +211,6 @@ test_cert_renew
 test_cert_info
 test_cert_not_running
 test_cert_help
+test_cert_generate_upgrade_from_symlink
 
 echo "All certificate tests passed!"
