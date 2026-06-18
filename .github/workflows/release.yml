@@ -9,9 +9,9 @@ jobs:
     name: "Package"
     runs-on: ubuntu-slim
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - run: ./build/package.sh ./ ./dist
-      - uses: SierraSoftworks/gh-releases@fe589e8c033b997e31780791f3cab3246d0726d3
+      - uses: SierraSoftworks/gh-releases@5e867a2c72a109b0fb541a089fba34853a8e071e
         with:
           files: |
             ./dist/tailscale-unifi.tgz
