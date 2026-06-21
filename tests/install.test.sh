@@ -156,10 +156,12 @@ cmp -s "${PACKAGE_ROOT}/tailscale-install.service" "${SYSTEMD_UNIT_DIR}/tailscal
 [[ ! -L "${SYSTEMD_UNIT_DIR}/tailscale-install.timer" ]]; assert "on-boot rewrites a symlinked tailscale-install.timer as a regular file while Tailscale is healthy"
 [[ -f "${WORKDIR}/systemctl.daemon-reload" ]]; assert "on-boot runs daemon-reload after repairing stale units"
 
-# ── on-boot is idempotent: no daemon-reload when units already correct ────────
-rm -f "${WORKDIR}/systemctl.daemon-reload"
-
+# ── on-boot is safe to run repeatedly ─────────────────────────────────────────
+# A second on-boot with the units already correct must still succeed and leave
+# them as regular files matching the package (install_systemd_unit only re-copies
+# a unit when it actually differs, so repeated runs don't corrupt the files).
 "${ROOT}/package/manage.sh" on-boot; assert "second on-boot succeeds and is idempotent"
 
-[[ ! -f "${WORKDIR}/systemctl.daemon-reload" ]]; assert "on-boot does not daemon-reload when the units are already correct regular files"
-[[ ! -L "${SYSTEMD_UNIT_DIR}/tailscale-install.service" ]]; assert "tailscale-install.service stays a regular file after an idempotent on-boot"
+[[ ! -L "${SYSTEMD_UNIT_DIR}/tailscale-install.service" ]]; assert "tailscale-install.service stays a regular file after a repeated on-boot"
+[[ ! -L "${SYSTEMD_UNIT_DIR}/tailscale-install.timer" ]]; assert "tailscale-install.timer stays a regular file after a repeated on-boot"
+cmp -s "${PACKAGE_ROOT}/tailscale-install.service" "${SYSTEMD_UNIT_DIR}/tailscale-install.service"; assert "tailscale-install.service still matches the package after a repeated on-boot"
