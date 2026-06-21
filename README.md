@@ -114,11 +114,6 @@ You do this by updating your Tailscale configuration as you would on any other m
 
 ```sh
 # Specify the routes you'd like to advertise using their CIDR notation
-
-# UniFi OS 1.x
-/mnt/data/tailscale/tailscale up --advertise-routes="10.0.0.0/24,192.168.0.0/24"
-
-# UniFi OS 2.x/3.x
 tailscale up --advertise-routes="10.0.0.0/24,192.168.0.0/24"
 ```
 
@@ -206,14 +201,6 @@ If you are running an older version of tailscale-udm, you can switch to TUN mode
 You bet, make sure you're running the latest version of Tailscale and then run `tailscale up --ssh` to enable it. You'll need to set up SSH ACLs in your account by following [this guide](https://tailscale.com/kb/1193/tailscale-ssh/).
 
 ```sh
-# UniFi OS 1.x
-# Update Tailscale to its latest version
-/mnt/data/tailscale/manage.sh update!
-
-# Enable SSH advertisement through Tailscale
-/mnt/data/tailscale/tailscale up --ssh
-
-# UniFi OS 2.x/3.x
 # Update Tailscale to its latest version
 /data/tailscale/manage.sh update!
 
