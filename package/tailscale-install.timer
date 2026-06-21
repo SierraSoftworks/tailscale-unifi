@@ -1,9 +1,12 @@
 [Unit]
 Description=Ensure that Tailscale is updated automatically on your device.
-Requires=tailscale-install.service
 
 [Timer]
-OnBootSec=5m
+# Trigger shortly after boot and then at least once a day, so Tailscale is kept
+# up to date and reinstalled if a firmware update wiped it.  Transient boot-time
+# failures (disk or network not ready yet) are handled by the service's own
+# 5-minute Restart= retry rather than by the timer.
+OnBootSec=2m
 OnUnitActiveSec=24h
 Unit=tailscale-install.service
 

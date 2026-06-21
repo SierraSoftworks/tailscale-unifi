@@ -1,6 +1,11 @@
 [Unit]
 Description=Tailscale Certificate Renewal
-After=network.target tailscaled.service
+# `tailscale cert` needs the daemon running and real outbound connectivity, and
+# the script + certs live under /data, so wait for the daemon, the network and
+# the data mount before running (consistent with tailscale-install.service).
+Wants=network-online.target
+After=network-online.target tailscaled.service
+RequiresMountsFor=/data/tailscale
 
 [Service]
 Type=oneshot

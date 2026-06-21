@@ -1,18 +1,31 @@
 [Unit]
 Description=Ensure that Tailscale is installed on your device
-After=network.target
+# We need real outbound connectivity (DNS + HTTPS to pkgs.tailscale.com and the
+# apt mirrors), not just a configured interface, so order after
+# network-online.target rather than the passive network.target.  This only
+# delays startup if a wait-online service is active; the Restart= retry below is
+# the real backstop for the connectivity race.
+Wants=network-online.target
+After=network-online.target
+# Wait for /data (on UDM-SE this is /ssd1/.data, mounted late in boot) before
+# running.  systemd can only honour this if it can read this unit file at early
+# boot, which is why manage.sh copies it as a plain regular file into /etc
+# (always mounted) instead of symlinking it into /data.
 RequiresMountsFor=/data/tailscale
-Wants=tailscale-install.timer
+# Retry every 5 minutes until a run succeeds.  StartLimitIntervalSec=0 disables
+# systemd's start rate limiter so the unit never gives up (e.g. while the disk is
+# still mounting or the network is still coming up); together with the
+# Restart=on-failure / RestartSec=5m below it retries indefinitely and stops as
+# soon as a run exits cleanly.  This key MUST live in [Unit]: in [Service] it is
+# silently ignored and the default 5-starts-per-10s limit applies instead.
+StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
 Environment=DEBIAN_FRONTEND=noninteractive
 ExecStart=/bin/bash -c "/data/tailscale/manage.sh on-boot"
-# Retry every 5 minutes on failure, up to 24 hours
 Restart=on-failure
 RestartSec=5m
-StartLimitIntervalSec=24h
-StartLimitBurst=288
 
 [Install]
 WantedBy=multi-user.target
