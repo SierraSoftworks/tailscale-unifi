@@ -110,9 +110,10 @@ ln -sf "${PACKAGE_ROOT}/tailscale-install.timer" \
 # emitted.  curl/jq are mocked empty so the version probe stays offline.
 mock "${WORKDIR}/curl" ""
 mock "${WORKDIR}/jq" ""
+reset_mock "${WORKDIR}/apt"
 
 update_out=$("${ROOT}/package/manage.sh" update 2>&1) || true
-! echo "$update_out" | grep -q "tailscale: not found"; assert "update with tailscale absent does not emit 'tailscale: not found'"
+assert_not_contains "$update_out" "tailscale: not found" "update with tailscale absent does not emit 'tailscale: not found'"
 assert_contains "$(cat "${WORKDIR}/apt.args")" "install -y tailscale" "update with tailscale absent triggers an install"
 
 # ── on-boot repairs stale units while Tailscale is healthy ────────────────────

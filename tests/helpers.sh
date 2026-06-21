@@ -58,6 +58,22 @@ assert_contains() {
     fi
 }
 
+assert_not_contains() {
+    local ACTUAL_OUTPUT="${1?You must specify the actual output first argument}"
+    local EXPECTED_OUTPUT="${2?You must specify the expected output as the second argument}"
+    local TEST_NAME="${3?You must specify the test name as the third argument}"
+
+    if (echo "$ACTUAL_OUTPUT" | grep -qe "$EXPECTED_OUTPUT"); then
+        echo "  ❌  $TEST_NAME"
+        echo "    Should Not Contain: $EXPECTED_OUTPUT"
+        echo "    Actual:             $ACTUAL_OUTPUT"
+        echo ""
+        exit 1
+    else
+        echo "  ✅  $TEST_NAME"
+    fi
+}
+
 mock() {
     local MOCK_PATH="${1?You must specify the path to the mock file as the first argument}"
     local OUTPUT="${2-mocked output}"
@@ -75,4 +91,10 @@ exit $EXIT_CODE
 EOF
 
     chmod +x "$MOCK_PATH"
+}
+
+reset_mock() {
+    local MOCK_PATH="${1?You must specify the path to the mock file as the first argument}"
+
+    rm -f "${MOCK_PATH}.args"
 }
