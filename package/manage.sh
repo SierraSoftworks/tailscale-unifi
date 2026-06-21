@@ -69,8 +69,7 @@ install_systemd_unit() {
 # ensure_systemd_units
 #
 # Install (or repair) the units that reinstall Tailscale after a firmware update,
-# and make sure they are enabled.  Safe to run on every boot: it only reloads and
-# enables when a unit actually changed, so a healthy device incurs no churn.
+# and make sure they are enabled.
 # Running it unconditionally (not only when Tailscale is missing) is what lets old
 # symlink-based installs heal themselves -- the stale symlinks are rewritten as
 # plain files while the system is healthy, before the next firmware update makes
