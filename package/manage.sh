@@ -52,8 +52,6 @@ tailscale_stop() {
 # the copied regular files are readable by systemd on every boot even before
 # /ssd1 is mounted -- which is what lets RequiresMountsFor= in the unit be
 # honoured at all.
-#
-# Sets SYSTEMD_UNITS_CHANGED=1 when it modifies the destination.
 install_systemd_unit() {
   _unit="$1"
   _src="${PACKAGE_ROOT}/${_unit}"
@@ -65,7 +63,6 @@ install_systemd_unit() {
   if [ -L "$_dst" ] || [ ! -f "$_dst" ] || ! cmp -s "$_src" "$_dst"; then
     rm -f "$_dst"
     cp "$_src" "$_dst"
-    SYSTEMD_UNITS_CHANGED=1
   fi
 }
 
@@ -79,17 +76,13 @@ install_systemd_unit() {
 # plain files while the system is healthy, before the next firmware update makes
 # them unreadable to systemd.
 ensure_systemd_units() {
-  SYSTEMD_UNITS_CHANGED=""
-
+  echo "Installing systemd units to keep Tailscale installed across firmware updates."
   install_systemd_unit tailscale-install.service
   install_systemd_unit tailscale-install.timer
-
-  if [ -n "$SYSTEMD_UNITS_CHANGED" ]; then
-    echo "Installing systemd units to keep Tailscale installed across firmware updates."
-    systemctl daemon-reload
-    systemctl enable tailscale-install.service
-    systemctl enable --now tailscale-install.timer
-  fi
+  
+  systemctl daemon-reload
+  systemctl enable tailscale-install.service
+  systemctl enable --now tailscale-install.timer
 }
 
 tailscale_install() {
