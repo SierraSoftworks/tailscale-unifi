@@ -8,7 +8,9 @@ trap 'rm -rf ${WORKDIR}' EXIT
 # shellcheck source=tests/helpers.sh
 . "${ROOT}/tests/helpers.sh"
 
-export PACKAGE_ROOT="${ROOT}/package"
+# Absolute so the symlink fixtures below resolve from any working directory.
+PACKAGE_ROOT="$(cd "${ROOT}/package" && pwd)"
+export PACKAGE_ROOT
 export TAILSCALE_ROOT="${WORKDIR}"
 export TAILSCALED_SOCK="${WORKDIR}/tailscaled.sock"
 export SYSTEMD_UNIT_DIR="${WORKDIR}/systemd"
@@ -21,8 +23,10 @@ mock "${WORKDIR}/apt-key" "--## apt-key mock: \$* ##--"
 mock "${WORKDIR}/tee" "--## tee mock: \$* ##--"
 mock "${WORKDIR}/apt" "--## apt mock: \$* ##--"
 mock "${WORKDIR}/sed" "--## sed mock: \$* ##--"
-mock "${WORKDIR}/ln" "--## ln mock: \$* ##--"
 mock "${WORKDIR}/ubnt-device-info" "2.0.0"
+# NB: `ln` is deliberately NOT mocked.  manage.sh no longer creates symlinks
+# (it copies unit files), so the only `ln` calls are the symlink fixtures the
+# tests below set up — those must use the real `ln` to be meaningful.
 
 # systemctl mock, used to ensure the installer doesn't block thinking that tailscale is running
 cat > "${WORKDIR}/systemctl" <<EOF
@@ -98,3 +102,66 @@ ln -sf "${PACKAGE_ROOT}/tailscale-install.timer" \
 # destination would still appear as a file — only -L distinguishes the two.
 [[ ! -L "${SYSTEMD_UNIT_DIR}/tailscale-install.service" ]]; assert "tailscale-install.service should be a regular file after upgrade, not a symlink"
 [[ ! -L "${SYSTEMD_UNIT_DIR}/tailscale-install.timer" ]]; assert "tailscale-install.timer should be a regular file after upgrade, not a symlink"
+
+# ── update with the tailscale binary absent => clean "needs install" ──────────
+# A device whose binaries were just wiped by a firmware update has no `tailscale`
+# on PATH.  `manage.sh update` must treat that as "needs install" and reinstall,
+# without the noisy "tailscale: not found" that the old tailscale_has_update
+# emitted.  curl/jq are mocked empty so the version probe stays offline.
+mock "${WORKDIR}/curl" ""
+mock "${WORKDIR}/jq" ""
+reset_mock "${WORKDIR}/apt"
+
+update_out=$("${ROOT}/package/manage.sh" update 2>&1) || true
+assert_not_contains "$update_out" "tailscale: not found" "update with tailscale absent does not emit 'tailscale: not found'"
+assert_contains "$(cat "${WORKDIR}/apt.args")" "install -y tailscale" "update with tailscale absent triggers an install"
+
+# ── on-boot repairs stale units while Tailscale is healthy ────────────────────
+# The core regression fix: installs predating the copy-based layout leave unit
+# files that drift from the package — symlinks into /data (unreadable at early
+# boot), or stale copies from an older version.  on-boot must repair them on
+# EVERY boot, even when Tailscale is already installed and running, so they are
+# healthy before the next firmware update.  Re-mock systemctl so Tailscale
+# appears installed AND running, and handle the `start` issued by tailscale_start.
+cat > "${WORKDIR}/systemctl" <<EOF
+#!/usr/bin/env bash
+case "\$1" in
+    "is-active")     exit 0 ;;
+    "is-enabled")    exit 0 ;;
+    "enable")        touch "${WORKDIR}/\$2.enabled" ;;
+    "daemon-reload") touch "${WORKDIR}/systemctl.daemon-reload" ;;
+    "start")         touch "${WORKDIR}/tailscaled.started" ;;
+    "restart")       touch "${WORKDIR}/tailscaled.restarted" ;;
+    *) echo "Unexpected command: \${1}"; exit 1 ;;
+esac
+EOF
+chmod +x "${WORKDIR}/systemctl"
+
+# tailscale present on PATH (command -v succeeds) and reporting a version; sleep
+# instant so tailscale_start doesn't stall the suite.
+mock "${WORKDIR}/tailscale" "1.999.0"
+mock "${WORKDIR}/sleep" ""
+
+# A stale regular unit file (content differs from the package) plus a symlinked
+# unit (the pre-v3.3.0 layout).  The stale-content case drives the change
+# detection portably; the symlink case mirrors the real-world bug.
+printf '[Unit]\n# stale\n' > "${SYSTEMD_UNIT_DIR}/tailscale-install.service"
+ln -sf "${PACKAGE_ROOT}/tailscale-install.timer" \
+       "${SYSTEMD_UNIT_DIR}/tailscale-install.timer"
+rm -f "${WORKDIR}/systemctl.daemon-reload"
+
+"${ROOT}/package/manage.sh" on-boot; assert "on-boot succeeds when Tailscale is already installed"
+
+cmp -s "${PACKAGE_ROOT}/tailscale-install.service" "${SYSTEMD_UNIT_DIR}/tailscale-install.service"; assert "on-boot rewrites a stale tailscale-install.service to match the package while Tailscale is healthy"
+[[ ! -L "${SYSTEMD_UNIT_DIR}/tailscale-install.timer" ]]; assert "on-boot rewrites a symlinked tailscale-install.timer as a regular file while Tailscale is healthy"
+[[ -f "${WORKDIR}/systemctl.daemon-reload" ]]; assert "on-boot runs daemon-reload after repairing stale units"
+
+# ── on-boot is safe to run repeatedly ─────────────────────────────────────────
+# A second on-boot with the units already correct must still succeed and leave
+# them as regular files matching the package (install_systemd_unit only re-copies
+# a unit when it actually differs, so repeated runs don't corrupt the files).
+"${ROOT}/package/manage.sh" on-boot; assert "second on-boot succeeds and is idempotent"
+
+[[ ! -L "${SYSTEMD_UNIT_DIR}/tailscale-install.service" ]]; assert "tailscale-install.service stays a regular file after a repeated on-boot"
+[[ ! -L "${SYSTEMD_UNIT_DIR}/tailscale-install.timer" ]]; assert "tailscale-install.timer stays a regular file after a repeated on-boot"
+cmp -s "${PACKAGE_ROOT}/tailscale-install.service" "${SYSTEMD_UNIT_DIR}/tailscale-install.service"; assert "tailscale-install.service still matches the package after a repeated on-boot"

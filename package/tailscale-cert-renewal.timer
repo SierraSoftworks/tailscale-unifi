@@ -1,6 +1,5 @@
 [Unit]
 Description=Tailscale Certificate Renewal Timer
-Requires=tailscale-cert-renewal.service
 
 [Timer]
 Unit=tailscale-cert-renewal.service

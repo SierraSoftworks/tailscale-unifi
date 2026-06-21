@@ -38,6 +38,52 @@ tailscale_stop() {
   systemctl stop tailscaled
 }
 
+# install_systemd_unit <unit-file-name>
+#
+# Copy ${PACKAGE_ROOT}/<unit> to ${SYSTEMD_UNIT_DIR}/<unit>, but only when the
+# destination is missing, is a symlink, or differs from the packaged copy.
+#
+# A plain `cp -f` does NOT pre-unlink its destination; it only retries the open
+# on failure.  On UDM-SE /data -> /ssd1/.data, so a pre-v3.3.0 symlink at
+# ${SYSTEMD_UNIT_DIR}/<unit> pointing back into /data/tailscale/ makes the source
+# and destination canonicalise to the same inode and `cp` aborts with "are the
+# same file".  Removing the destination first handles symlinks, hard-links and
+# regular files uniformly.  /etc lives on the overlay root (always mounted), so
+# the copied regular files are readable by systemd on every boot even before
+# /ssd1 is mounted -- which is what lets RequiresMountsFor= in the unit be
+# honoured at all.
+install_systemd_unit() {
+  _unit="$1"
+  _src="${PACKAGE_ROOT}/${_unit}"
+  _dst="${SYSTEMD_UNIT_DIR}/${_unit}"
+
+  # Nothing to do if the package does not ship this unit.
+  [ -f "$_src" ] || return 0
+
+  if [ -L "$_dst" ] || [ ! -f "$_dst" ] || ! cmp -s "$_src" "$_dst"; then
+    rm -f "$_dst"
+    cp "$_src" "$_dst"
+  fi
+}
+
+# ensure_systemd_units
+#
+# Install (or repair) the units that reinstall Tailscale after a firmware update,
+# and make sure they are enabled.
+# Running it unconditionally (not only when Tailscale is missing) is what lets old
+# symlink-based installs heal themselves -- the stale symlinks are rewritten as
+# plain files while the system is healthy, before the next firmware update makes
+# them unreadable to systemd.
+ensure_systemd_units() {
+  echo "Installing systemd units to keep Tailscale installed across firmware updates."
+  install_systemd_unit tailscale-install.service
+  install_systemd_unit tailscale-install.timer
+  
+  systemctl daemon-reload
+  systemctl enable tailscale-install.service
+  systemctl enable --now tailscale-install.timer
+}
+
 tailscale_install() {
   # shellcheck source=tests/os-release
   . "${OS_RELEASE_FILE:-/etc/os-release}"
@@ -97,26 +143,9 @@ tailscale_install() {
       exit 1
   }
 
-  # Remove any pre-existing file or symlink at the destination before copying.
-  # A plain `cp -f` does NOT pre-unlink the destination; it only retries if the
-  # open fails.  On UDM-SE /data -> /ssd1/.data, so a v3.2.0 symlink at
-  # ${SYSTEMD_UNIT_DIR}/tailscale-install.{service,timer} pointing back into
-  # /data/tailscale/ causes both source and destination to canonicalise to the
-  # same inode, and cp aborts with "are the same file".  Explicitly removing the
-  # destination first handles symlinks, hard-links, and regular files uniformly.
-  # /etc lives on the overlay root (always mounted), so the copied regular files
-  # are visible to systemd on every boot even before /ssd1 is mounted.
-  echo "Installing pre-start script to install Tailscale on firmware updates."
-  rm -f "${SYSTEMD_UNIT_DIR}/tailscale-install.service"
-  cp "${PACKAGE_ROOT}/tailscale-install.service" "${SYSTEMD_UNIT_DIR}/tailscale-install.service"
-
-  echo "Installing auto-update timer to ensure that Tailscale is kept installed and up to date."
-  rm -f "${SYSTEMD_UNIT_DIR}/tailscale-install.timer"
-  cp "${PACKAGE_ROOT}/tailscale-install.timer" "${SYSTEMD_UNIT_DIR}/tailscale-install.timer"
-
-  systemctl daemon-reload
-  systemctl enable tailscale-install.service
-  systemctl enable --now tailscale-install.timer
+  # Install (or repair) the systemd units that reinstall Tailscale after a
+  # firmware update.  See ensure_systemd_units / install_systemd_unit above.
+  ensure_systemd_units
 
   echo "Installation complete, run '$0 start' to start Tailscale"
 }
@@ -139,6 +168,13 @@ tailscale_uninstall() {
 }
 
 tailscale_has_update() {
+  # If Tailscale isn't installed there is nothing to compare against; report
+  # "needs install" without the noisy "tailscale: not found" on stderr (this is
+  # what `manage.sh update` hits on a device whose binaries were just wiped).
+  if ! command -v tailscale >/dev/null 2>&1; then
+    return 0
+  fi
+
   CURRENT_VERSION="$(tailscale --version | head -n 1)"
   TARGET_VERSION="${1:-$(curl --ipv4 -sSLq 'https://pkgs.tailscale.com/stable/?mode=json' | jq -r '.Tarballs.arm64 | capture("tailscale_(?<version>[^_]+)_").version')}"
 
@@ -185,14 +221,12 @@ tailscale_cert_generate() {
       echo ""
       echo "Certificate expires in 90 days. Use '$0 cert renew $TAILSCALE_HOSTNAME' to renew."
 
-      # Remove any pre-existing file or symlink before copying (see comment in
-      # tailscale_install for the full explanation of why rm -f is required).
+      # Install (or repair) the cert-renewal units.  install_systemd_unit removes
+      # any pre-existing symlink before copying (see its comment for why).
       if [ -f "${PACKAGE_ROOT}/tailscale-cert-renewal.service" ] && [ -f "${PACKAGE_ROOT}/tailscale-cert-renewal.timer" ]; then
           echo "Installing certificate auto-renewal timer..."
-          rm -f "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.service"
-          cp "${PACKAGE_ROOT}/tailscale-cert-renewal.service" "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.service"
-          rm -f "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.timer"
-          cp "${PACKAGE_ROOT}/tailscale-cert-renewal.timer" "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.timer"
+          install_systemd_unit tailscale-cert-renewal.service
+          install_systemd_unit tailscale-cert-renewal.timer
           systemctl daemon-reload
           systemctl enable tailscale-cert-renewal.timer
           systemctl start tailscale-cert-renewal.timer
@@ -438,6 +472,15 @@ case $1 in
   "on-boot")
     # shellcheck source=package/tailscale-env
     . "${PACKAGE_ROOT}/tailscale-env"
+
+    # Repair the systemd units first, on every boot, even when Tailscale is
+    # already installed and healthy.  This rewrites any stale symlinked unit
+    # files (from installs predating the copy-based layout) as plain regular
+    # files in /etc while the disk is mounted, so the auto-reinstall units stay
+    # readable by systemd after the next firmware update wipes /usr.  Doing it
+    # first means the units are healthy for the next boot even if the steps
+    # below fail.
+    ensure_systemd_units
 
     if ! command -v tailscale >/dev/null 2>&1; then
       tailscale_install
