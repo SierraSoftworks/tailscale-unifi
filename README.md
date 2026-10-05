@@ -293,7 +293,7 @@ systemctl restart unifi-core
 
 Certificates expire after 90 days. The hostname is automatically determined from your Tailscale configuration.
 
-On UniFi OS, a systemd timer is automatically installed when you generate your first certificate. This timer runs weekly to check and renew certificates before they expire. If the active UniFi certificate still matches the previously installed Tailscale certificate, renewal updates its files and database record and restarts UniFi Core. A different active certificate is left untouched.
+On UniFi OS, a systemd timer is automatically installed when you generate your first certificate. This timer runs weekly to check and renew certificates before they expire. If the active UniFi certificate was installed from Tailscale (it matches the Tailscale certificate, or was issued for this device's Tailscale hostname) and differs from the current Tailscale certificate, renewal updates its files and database record and restarts UniFi Core. This also catches up after Tailscale renews the certificate in the background, which it does once the certificate is inside its renewal window. A certificate for any other hostname is left untouched.
 
 [tailscale-pr10828]: https://github.com/tailscale/tailscale/pull/10828
 [tailscale-pr14452]: https://github.com/tailscale/tailscale/pull/14452
