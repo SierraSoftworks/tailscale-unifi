@@ -79,6 +79,11 @@ mock_tailscale_cert() {
     done
 
     if [ -n "\$cert_file" ] && [ -n "\$key_file" ]; then
+        # Asynchronous renewal: tailscaled hands back the cached certificate
+        # unchanged and writes the renewed one later.
+        if [ -f "${WORKDIR}/tailscale-cert-cached" ]; then
+            return 0
+        fi
         echo "CERTIFICATE" > "\$cert_file"
         echo "PRIVATE KEY" > "\$key_file"
         return 0
@@ -251,6 +256,128 @@ test_cert_renew_keeps_updated_state_when_unifi_restart_fails() {
     rm -f "$WORKDIR/fail-unifi-core-restart"
 }
 
+# Create a real self-signed certificate for the given hostname.
+make_test_cert() {
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 90 \
+        -subj "/CN=$1" -addext "subjectAltName=DNS:$1" \
+        -keyout "$3" -out "$2" >/dev/null 2>&1
+}
+
+# tailscaled renewed the certificate in the background after an earlier run
+# compared the files, so the active UniFi copy is an older certificate for the
+# same hostname and `tailscale cert` now returns the renewed one unchanged.
+test_cert_renew_updates_unifi_cert_after_async_renewal() {
+    cert_uuid="12345678-1234-1234-1234-123456789012"
+    unifi_config_dir="${WORKDIR}/unifi-core/config"
+
+    mkdir -p "$TAILSCALE_ROOT/certs" "$TAILSCALE_ROOT/helpers" "$unifi_config_dir"
+    touch "$TAILSCALED_SOCK" "$WORKDIR/tailscale-cert-cached"
+    make_test_cert test-host.example.ts.net \
+        "$TAILSCALE_ROOT/certs/test-host.example.ts.net.crt" "$TAILSCALE_ROOT/certs/test-host.example.ts.net.key"
+    make_test_cert test-host.example.ts.net "$unifi_config_dir/$cert_uuid.crt" "$unifi_config_dir/$cert_uuid.key"
+    echo "activeCertId: $cert_uuid" > "$unifi_config_dir/settings.yaml"
+    mock "$TAILSCALE_ROOT/helpers/cert-db-register.sh"
+
+    output=$(UNIFI_CONFIG_DIR="$unifi_config_dir" "$MANAGE_SH" cert renew 2>&1)
+
+    assert_contains "$output" "UniFi OS certificate updated" \
+        "Renewal updates a UniFi certificate left behind by an asynchronous renewal"
+    cmp -s "$TAILSCALE_ROOT/certs/test-host.example.ts.net.crt" "$unifi_config_dir/$cert_uuid.crt"
+    assert "Installed UniFi certificate matches the current Tailscale certificate"
+    cmp -s "$TAILSCALE_ROOT/certs/test-host.example.ts.net.key" "$unifi_config_dir/$cert_uuid.key"
+    assert "Installed UniFi key matches the current Tailscale key"
+    assert_contains "$(cat "$TAILSCALE_ROOT/helpers/cert-db-register.sh.args")" "$cert_uuid" \
+        "Asynchronous catch-up updates the existing UniFi database record"
+    assert_file_exists "$WORKDIR/unifi-core.restarted" \
+        "Asynchronous catch-up restarts UniFi Core"
+    [[ ! -e "$TAILSCALE_ROOT/certs/test-host.example.ts.net.crt.unifi" ]]
+    assert "Temporary copy of the previous UniFi certificate is removed"
+
+    rm -rf "$TAILSCALE_ROOT/certs" "$TAILSCALE_ROOT/helpers" "$unifi_config_dir"
+    rm -f "$WORKDIR/unifi-core.restarted" "$WORKDIR/tailscale-cert-cached"
+}
+
+test_cert_renew_leaves_current_unifi_cert_alone() {
+    cert_uuid="12345678-1234-1234-1234-123456789012"
+    unifi_config_dir="${WORKDIR}/unifi-core/config"
+
+    mkdir -p "$TAILSCALE_ROOT/certs" "$TAILSCALE_ROOT/helpers" "$unifi_config_dir"
+    touch "$TAILSCALED_SOCK" "$WORKDIR/tailscale-cert-cached"
+    make_test_cert test-host.example.ts.net \
+        "$TAILSCALE_ROOT/certs/test-host.example.ts.net.crt" "$TAILSCALE_ROOT/certs/test-host.example.ts.net.key"
+    cp "$TAILSCALE_ROOT/certs/test-host.example.ts.net.crt" "$unifi_config_dir/$cert_uuid.crt"
+    cp "$TAILSCALE_ROOT/certs/test-host.example.ts.net.key" "$unifi_config_dir/$cert_uuid.key"
+    echo "activeCertId: $cert_uuid" > "$unifi_config_dir/settings.yaml"
+    mock "$TAILSCALE_ROOT/helpers/cert-db-register.sh"
+
+    output=$(UNIFI_CONFIG_DIR="$unifi_config_dir" "$MANAGE_SH" cert renew 2>&1)
+
+    assert_not_contains "$output" "UniFi OS certificate updated" \
+        "Renewal does not rewrite a UniFi certificate that is already current"
+    [[ ! -f "$TAILSCALE_ROOT/helpers/cert-db-register.sh.args" ]]
+    assert "Renewal does not touch the UniFi database when nothing changed"
+    [[ ! -f "$WORKDIR/unifi-core.restarted" ]]
+    assert "Renewal does not restart UniFi Core when nothing changed"
+
+    rm -rf "$TAILSCALE_ROOT/certs" "$TAILSCALE_ROOT/helpers" "$unifi_config_dir"
+    rm -f "$WORKDIR/tailscale-cert-cached"
+}
+
+test_cert_renew_does_not_replace_unifi_cert_for_other_host() {
+    cert_uuid="12345678-1234-1234-1234-123456789012"
+    unifi_config_dir="${WORKDIR}/unifi-core/config"
+
+    mkdir -p "$TAILSCALE_ROOT/certs" "$TAILSCALE_ROOT/helpers" "$unifi_config_dir"
+    touch "$TAILSCALED_SOCK" "$WORKDIR/tailscale-cert-cached"
+    make_test_cert test-host.example.ts.net \
+        "$TAILSCALE_ROOT/certs/test-host.example.ts.net.crt" "$TAILSCALE_ROOT/certs/test-host.example.ts.net.key"
+    make_test_cert unifi.example.com "$unifi_config_dir/$cert_uuid.crt" "$unifi_config_dir/$cert_uuid.key"
+    cp "$unifi_config_dir/$cert_uuid.crt" "$WORKDIR/other-host.crt"
+    echo "activeCertId: $cert_uuid" > "$unifi_config_dir/settings.yaml"
+    mock "$TAILSCALE_ROOT/helpers/cert-db-register.sh"
+
+    output=$(UNIFI_CONFIG_DIR="$unifi_config_dir" "$MANAGE_SH" cert renew 2>&1)
+
+    assert_not_contains "$output" "UniFi OS certificate updated" \
+        "Renewal does not replace a UniFi certificate issued for another hostname"
+    cmp -s "$WORKDIR/other-host.crt" "$unifi_config_dir/$cert_uuid.crt"
+    assert "UniFi certificate for another hostname remains unchanged"
+    [[ ! -f "$WORKDIR/unifi-core.restarted" ]]
+    assert "Renewal does not restart UniFi Core for a certificate it does not own"
+
+    rm -rf "$TAILSCALE_ROOT/certs" "$TAILSCALE_ROOT/helpers" "$unifi_config_dir"
+    rm -f "$WORKDIR/tailscale-cert-cached" "$WORKDIR/other-host.crt"
+}
+
+test_cert_renew_restores_unifi_cert_when_async_update_fails() {
+    cert_uuid="12345678-1234-1234-1234-123456789012"
+    unifi_config_dir="${WORKDIR}/unifi-core/config"
+
+    mkdir -p "$TAILSCALE_ROOT/certs" "$TAILSCALE_ROOT/helpers" "$unifi_config_dir"
+    touch "$TAILSCALED_SOCK" "$WORKDIR/tailscale-cert-cached"
+    make_test_cert test-host.example.ts.net \
+        "$TAILSCALE_ROOT/certs/test-host.example.ts.net.crt" "$TAILSCALE_ROOT/certs/test-host.example.ts.net.key"
+    make_test_cert test-host.example.ts.net "$unifi_config_dir/$cert_uuid.crt" "$unifi_config_dir/$cert_uuid.key"
+    cp "$unifi_config_dir/$cert_uuid.crt" "$WORKDIR/previous-unifi.crt"
+    cp "$TAILSCALE_ROOT/certs/test-host.example.ts.net.crt" "$WORKDIR/current-tailscale.crt"
+    echo "activeCertId: $cert_uuid" > "$unifi_config_dir/settings.yaml"
+    mock "$TAILSCALE_ROOT/helpers/cert-db-register.sh" "database unavailable" 1
+
+    output=$(UNIFI_CONFIG_DIR="$unifi_config_dir" "$MANAGE_SH" cert renew 2>&1) || true
+
+    assert_contains "$output" "Failed to update the installed UniFi certificate" \
+        "Renewal reports a failed asynchronous catch-up"
+    cmp -s "$WORKDIR/previous-unifi.crt" "$unifi_config_dir/$cert_uuid.crt"
+    assert "Installed UniFi certificate is restored from its own previous copy"
+    cmp -s "$WORKDIR/current-tailscale.crt" "$TAILSCALE_ROOT/certs/test-host.example.ts.net.crt"
+    assert "Current Tailscale certificate is kept"
+    [[ ! -f "$WORKDIR/unifi-core.restarted" ]]
+    assert "UniFi Core is not restarted after a failed asynchronous catch-up"
+
+    rm -rf "$TAILSCALE_ROOT/certs" "$TAILSCALE_ROOT/helpers" "$unifi_config_dir"
+    rm -f "$WORKDIR/tailscale-cert-cached" "$WORKDIR/previous-unifi.crt" "$WORKDIR/current-tailscale.crt"
+}
+
 # Test certificate info
 test_cert_info() {
     mkdir -p "$TAILSCALE_ROOT/certs"
@@ -326,6 +453,10 @@ test_cert_renew_updates_installed_unifi_cert
 test_cert_renew_does_not_replace_unrelated_unifi_cert
 test_cert_renew_rolls_back_when_unifi_update_fails
 test_cert_renew_keeps_updated_state_when_unifi_restart_fails
+test_cert_renew_updates_unifi_cert_after_async_renewal
+test_cert_renew_leaves_current_unifi_cert_alone
+test_cert_renew_does_not_replace_unifi_cert_for_other_host
+test_cert_renew_restores_unifi_cert_when_async_update_fails
 test_cert_info
 test_cert_not_running
 test_cert_help

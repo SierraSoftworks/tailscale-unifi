@@ -350,9 +350,8 @@ tailscale_cert_generate() {
   fi
 }
 
-tailscale_cert_installed_unifi_uuid() {
-  _source_cert="$1"
-  _source_key="$2"
+# Print the UUID of the active UniFi OS certificate when its files exist.
+tailscale_cert_active_unifi_uuid() {
   _settings_file="${UNIFI_CONFIG_DIR}/settings.yaml"
 
   [ -f "$_settings_file" ] || return 1
@@ -364,10 +363,27 @@ tailscale_cert_installed_unifi_uuid() {
 
   [ -f "${UNIFI_CONFIG_DIR}/${_cert_uuid}.crt" ] || return 1
   [ -f "${UNIFI_CONFIG_DIR}/${_cert_uuid}.key" ] || return 1
-  cmp -s "$_source_cert" "${UNIFI_CONFIG_DIR}/${_cert_uuid}.crt" || return 1
-  cmp -s "$_source_key" "${UNIFI_CONFIG_DIR}/${_cert_uuid}.key" || return 1
 
   printf '%s\n' "$_cert_uuid"
+}
+
+# Succeed when the given UniFi certificate came from Tailscale: it is
+# byte-identical to the given Tailscale certificate and key, or it is a
+# certificate for this node's Tailscale hostname.  The hostname check matters
+# because tailscaled renews certificates asynchronously: `tailscale cert`
+# returns the cached certificate and writes the renewed one to the same files
+# shortly afterwards, so by the next run no byte-identical copy remains.
+tailscale_cert_unifi_is_tailscale() {
+  _installed_cert="${UNIFI_CONFIG_DIR}/$1.crt"
+  _installed_key="${UNIFI_CONFIG_DIR}/$1.key"
+
+  if cmp -s "$2" "$_installed_cert" && cmp -s "$3" "$_installed_key"; then
+    return 0
+  fi
+
+  command -v openssl >/dev/null 2>&1 || return 1
+  openssl x509 -in "$_installed_cert" -noout -checkhost "$TAILSCALE_HOSTNAME" 2>/dev/null | \
+    grep -q "does match certificate"
 }
 
 tailscale_cert_write_unifi() {
@@ -415,28 +431,38 @@ tailscale_cert_renew() {
   cp "$cert_file" "$cert_file.bak"
   cp "$key_file" "$key_file.bak"
 
-  installed_unifi_uuid=""
-  if installed_unifi_uuid=$(tailscale_cert_installed_unifi_uuid "$cert_file.bak" "$key_file.bak"); then
-    echo "Found matching installed UniFi certificate with ID: $installed_unifi_uuid"
+  unifi_uuid=""
+  if unifi_uuid=$(tailscale_cert_active_unifi_uuid) && \
+     tailscale_cert_unifi_is_tailscale "$unifi_uuid" "$cert_file.bak" "$key_file.bak"; then
+    echo "Found matching installed UniFi certificate with ID: $unifi_uuid"
+  else
+    unifi_uuid=""
   fi
 
   if tailscale cert --cert-file "$cert_file" --key-file "$key_file" "$TAILSCALE_HOSTNAME"; then
       chmod 644 "$cert_file"
       chmod 600 "$key_file"
 
-      if [ -n "$installed_unifi_uuid" ] && \
-         { ! cmp -s "$cert_file.bak" "$cert_file" || ! cmp -s "$key_file.bak" "$key_file"; }; then
-          if ! tailscale_cert_write_unifi "$installed_unifi_uuid" "$cert_file" "$key_file"; then
-              tailscale_cert_write_unifi "$installed_unifi_uuid" "$cert_file.bak" "$key_file.bak" || \
+      # Compare with the installed copy, not the pre-renewal file: an earlier
+      # asynchronous renewal may already have replaced the Tailscale certificate.
+      if [ -n "$unifi_uuid" ] && \
+         { ! cmp -s "$cert_file" "${UNIFI_CONFIG_DIR}/${unifi_uuid}.crt" || \
+           ! cmp -s "$key_file" "${UNIFI_CONFIG_DIR}/${unifi_uuid}.key"; }; then
+          cp "${UNIFI_CONFIG_DIR}/${unifi_uuid}.crt" "$cert_file.unifi"
+          cp "${UNIFI_CONFIG_DIR}/${unifi_uuid}.key" "$key_file.unifi"
+
+          if ! tailscale_cert_write_unifi "$unifi_uuid" "$cert_file" "$key_file"; then
+              tailscale_cert_write_unifi "$unifi_uuid" "$cert_file.unifi" "$key_file.unifi" || \
                 echo "Warning: failed to restore the previous UniFi certificate"
+              rm -f "$cert_file.unifi" "$key_file.unifi"
               mv "$cert_file.bak" "$cert_file"
               mv "$key_file.bak" "$key_file"
               echo "Failed to update the installed UniFi certificate; restored the previous Tailscale certificate"
               exit 1
           fi
 
-          rm -f "$cert_file.bak" "$key_file.bak"
-          echo "UniFi OS certificate updated with ID: $installed_unifi_uuid"
+          rm -f "$cert_file.bak" "$key_file.bak" "$cert_file.unifi" "$key_file.unifi"
+          echo "UniFi OS certificate updated with ID: $unifi_uuid"
           if ! systemctl restart unifi-core; then
               echo "UniFi certificate was updated, but UniFi Core failed to restart"
               exit 1
