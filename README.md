@@ -198,11 +198,9 @@ sysctl net.ipv4.ip_forward
 
 #### Switch to TUN mode
 
-The quickest way to switch to TUN mode is to install the latest version of tailscale-unifi, which automatically configures Tailscale to use TUN mode on compatible devices. Keep in mind that devices which only support userspace networking mode cannot be used in this manner.
+New installs of tailscale-unifi use TUN mode automatically on compatible devices. Keep in mind that devices which only support userspace networking mode cannot be used in this manner.
 
-```sh
-curl -sSLq https://raw.githubusercontent.com/SierraSoftworks/tailscale-unifi/main/install.sh | sh
-```
+Re-running `install.sh` on a device that already has tailscale-unifi keeps your existing `/data/tailscale/tailscale-env`, including any `--tun userspace-networking` flag, so an existing install has to be switched manually.
 
 ##### Manually Switching to TUN Mode
 
