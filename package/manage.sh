@@ -95,20 +95,22 @@ tailscale_status() {
   print_device_advisories
 }
 
+# Returns non-zero (rather than exiting) on failure so callers can recover;
+# under `set -e` a failed call at the top level still aborts the script.
 tailscale_start() {
-  systemctl start tailscaled
+  systemctl start tailscaled || true
 
   # Wait a few seconds for the daemon to start
-    sleep 5
+  sleep 5
 
-    if systemctl is-active --quiet tailscaled; then
-      echo "Tailscaled started successfully"
-    else
-      echo "Tailscaled failed to start"
-      exit 1
-    fi
+  if systemctl is-active --quiet tailscaled; then
+    echo "Tailscaled started successfully"
+  else
+    echo "Tailscaled failed to start"
+    return 1
+  fi
 
-    echo "Run tailscale up to configure the interface."
+  echo "Run tailscale up to configure the interface."
 }
 
 tailscale_stop() {
@@ -156,7 +158,7 @@ ensure_systemd_units() {
   echo "Installing systemd units to keep Tailscale installed across firmware updates."
   install_systemd_unit tailscale-install.service
   install_systemd_unit tailscale-install.timer
-  
+
   systemctl daemon-reload
   systemctl enable tailscale-install.service
   systemctl enable --now tailscale-install.timer
@@ -196,6 +198,13 @@ sync_tailscaled_environment() {
   fi
 }
 
+# tailscale_install [version]
+#
+# Every failure path returns non-zero instead of exiting, and the steps that
+# matter are checked explicitly.  This matters because tailscale_update calls
+# this from an `||` list, where the shell ignores `set -e` for everything the
+# function runs -- so without explicit checks a failed `apt install` would be
+# silently skipped, and an `exit` would bypass the caller's recovery.
 tailscale_install() {
   # shellcheck source=tests/os-release
   . "${OS_RELEASE_FILE:-/etc/os-release}"
@@ -216,29 +225,38 @@ tailscale_install() {
   fi
 
   echo "Updating package lists..."
-  apt update
+  apt update || {
+      echo "Failed to update package lists"
+      return 1
+  }
 
   # Install Tailscale with version pinning if available, otherwise install latest from repo
   if [ -n "$tailscale_version" ] && [ "$tailscale_version" != "null" ]; then
     echo "Installing Tailscale ${tailscale_version}..."
-    apt install -y tailscale="${tailscale_version}"
+    apt install -y tailscale="${tailscale_version}" || {
+        echo "Failed to install Tailscale ${tailscale_version}"
+        return 1
+    }
   else
     echo "Installing latest Tailscale from repository (version unavailable)..."
-    apt install -y tailscale
+    apt install -y tailscale || {
+        echo "Failed to install Tailscale"
+        return 1
+    }
   fi
 
   echo "Configuring Tailscale port..."
   sed -i "s/PORT=\"[^\"]*\"/PORT=\"${PORT:-41641}\"/" "$TAILSCALED_DEFAULTS_FILE" || {
       echo "Failed to configure Tailscale port"
       echo "Check that the file $TAILSCALED_DEFAULTS_FILE exists and contains the line PORT=\"${PORT:-41641}\"."
-      exit 1
+      return 1
   }
 
   echo "Configuring Tailscaled startup flags..."
   sed -i "s@FLAGS=\"[^\"]*\"@FLAGS=\"--state /data/tailscale/tailscaled.state ${TAILSCALED_FLAGS}\"@" "$TAILSCALED_DEFAULTS_FILE" || {
       echo "Failed to configure Tailscaled startup flags"
       echo "Check that the file $TAILSCALED_DEFAULTS_FILE exists and contains the line FLAGS=\"--state /data/tailscale/tailscaled.state ${TAILSCALED_FLAGS}\"."
-      exit 1
+      return 1
   }
 
   echo "Configuring Tailscaled environment..."
@@ -248,19 +266,22 @@ tailscale_install() {
   systemctl restart tailscaled.service || {
       echo "Failed to restart Tailscale daemon"
       echo "The daemon might not be running with userspace networking enabled, you can restart it manually using 'systemctl restart tailscaled'."
-      exit 1
+      return 1
   }
 
   echo "Enabling Tailscale to start on boot..."
   systemctl enable tailscaled.service || {
       echo "Failed to enable Tailscale to start on boot"
       echo "You can enable it manually using 'systemctl enable tailscaled'."
-      exit 1
+      return 1
   }
 
   # Install (or repair) the systemd units that reinstall Tailscale after a
   # firmware update.  See ensure_systemd_units / install_systemd_unit above.
-  ensure_systemd_units
+  ensure_systemd_units || {
+      echo "Failed to install the systemd units that keep Tailscale installed"
+      return 1
+  }
 
   print_device_advisories
 
@@ -272,16 +293,20 @@ tailscale_uninstall() {
   apt remove -y tailscale
   rm -f /etc/apt/sources.list.d/tailscale.list || true
 
+  # `disable --now` stops the timers as well as disabling them.  A timer that
+  # is only disabled stays active until the next reboot, and when it fires it
+  # runs `manage.sh on-boot`, which would reinstall Tailscale.
+  systemctl disable --now tailscale-install.timer || true
   systemctl disable tailscale-install.service || true
   rm -f "${SYSTEMD_UNIT_DIR}/tailscale-install.service" || true
-
-  systemctl disable tailscale-install.timer || true
   rm -f "${SYSTEMD_UNIT_DIR}/tailscale-install.timer" || true
 
-  systemctl disable tailscale-cert-renewal.timer || true
-  systemctl stop tailscale-cert-renewal.timer || true
+  systemctl disable --now tailscale-cert-renewal.timer || true
   rm -f "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.service" || true
   rm -f "${SYSTEMD_UNIT_DIR}/tailscale-cert-renewal.timer" || true
+
+  # Drop the deleted units from systemd's memory.
+  systemctl daemon-reload || true
 }
 
 tailscale_has_update() {
@@ -292,8 +317,13 @@ tailscale_has_update() {
     return 0
   fi
 
+  # Compare against the channel tailscale_install will install from; checking
+  # `stable` while installing from `unstable` would report an update every time.
+  _channel="${TAILSCALE_CHANNEL:-$(read_env_setting TAILSCALE_CHANNEL)}"
+  _channel="${_channel:-stable}"
+
   CURRENT_VERSION="$(tailscale --version | head -n 1)"
-  TARGET_VERSION="${1:-$(curl --ipv4 -sSLq 'https://pkgs.tailscale.com/stable/?mode=json' | jq -r '.Tarballs.arm64 | capture("tailscale_(?<version>[^_]+)_").version')}"
+  TARGET_VERSION="${1:-$(curl --ipv4 -sSLq "https://pkgs.tailscale.com/${_channel}/?mode=json" | jq -r '.Tarballs.arm64 | capture("tailscale_(?<version>[^_]+)_").version')}"
 
   # Validate TARGET_VERSION is not empty or null
   if [ -z "$TARGET_VERSION" ] || [ "$TARGET_VERSION" = "null" ]; then
@@ -312,15 +342,14 @@ tailscale_update() {
   # Don't stop Tailscale before update - apt can handle the upgrade while running
   # This prevents service disruption if the install fails
 
+  # tailscale_install restarts tailscaled itself once the new package is in
+  # place, so no extra restart is needed on success.
   tailscale_install "$1" || {
     echo "Update failed, ensuring Tailscale is running..."
     # If install failed, make sure Tailscale is at least started
     tailscale_start || true
     return 1
   }
-
-  # Restart to pick up the new version
-  systemctl restart tailscaled
 }
 
 tailscale_cert_generate() {
@@ -642,7 +671,7 @@ case $1 in
     tailscale_install "$2"
     ;;
   "uninstall")
-    tailscale_stop
+    tailscale_stop || true
     tailscale_uninstall
     ;;
   "update")
@@ -683,7 +712,11 @@ case $1 in
     fi
 
     if [ "${TAILSCALE_AUTOUPDATE}" = "true" ]; then
-      tailscale_has_update && tailscale_update || echo "No update available or unable to check"
+      if tailscale_has_update; then
+        tailscale_update || echo "Update failed, continuing with the installed version"
+      else
+        echo "No update available or unable to check"
+      fi
     fi
 
     tailscale_start

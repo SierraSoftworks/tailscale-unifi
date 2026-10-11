@@ -57,21 +57,66 @@ else
   exit 1
 fi
 
-if [ "$OS_VERSION" = '1' ]; then
+if [ -n "${PACKAGE_ROOT:-}" ]; then
+  # Allow the install location to be overridden (used by the test suite).
+  export PACKAGE_ROOT
+elif [ "$OS_VERSION" = '1' ]; then
   export PACKAGE_ROOT="/mnt/data/tailscale"
 else
   export PACKAGE_ROOT="/data/tailscale"
+fi
+ENV_FILE="${PACKAGE_ROOT}/tailscale-env"
+
+# The package ships a default tailscale-env, so extracting it over an existing
+# install would wipe the user's settings (TS_* variables, flags, channel).  Keep
+# a copy of the existing file so it can be restored after extraction.
+if [ -f "$ENV_FILE" ]; then
+  cp "$ENV_FILE" "${WORKDIR}/tailscale-env.existing"
 fi
 
 # Extract the package
 tar xzf "${WORKDIR}/tailscale.tgz" -C "$(dirname -- "${PACKAGE_ROOT}")"
 
+if [ -f "${WORKDIR}/tailscale-env.existing" ]; then
+  echo "Keeping your existing ${ENV_FILE}"
+  cp "$ENV_FILE" "${WORKDIR}/tailscale-env.default"
+  cp "${WORKDIR}/tailscale-env.existing" "$ENV_FILE"
+
+  # Add any settings introduced by this release that the existing file lacks,
+  # using the packaged default values.
+  while IFS= read -r line || [ -n "$line" ]; do
+    key="${line%%=*}"
+    case "$key" in
+      ''|\#*|*[!A-Za-z0-9_]*) continue ;;
+    esac
+    if ! grep -q "^${key}=" "$ENV_FILE"; then
+      printf '%s\n' "$line" >> "$ENV_FILE"
+    fi
+  done < "${WORKDIR}/tailscale-env.default"
+fi
+
+# set_tailscaled_flags <flags>
+#
+# Replace the TAILSCALED_FLAGS line in tailscale-env, rather than appending
+# another one on every run.
+set_tailscaled_flags() {
+  grep -v '^TAILSCALED_FLAGS=' "$ENV_FILE" > "${WORKDIR}/tailscale-env.new" || true
+  printf 'TAILSCALED_FLAGS="%s"\n' "$1" >> "${WORKDIR}/tailscale-env.new"
+  cat "${WORKDIR}/tailscale-env.new" > "$ENV_FILE"
+}
+
 # Update tailscale-env with modified values
 if [ -n "${TAILSCALED_FLAGS:-}" ]; then
-  echo "TAILSCALED_FLAGS=\"${TAILSCALED_FLAGS}\"" >> "$PACKAGE_ROOT/tailscale-env"
+  set_tailscaled_flags "${TAILSCALED_FLAGS}"
 elif [ ! -e /dev/net/tun ]; then
-  echo "TUN device (/dev/net/tun) not found, defaulting to userspace networking."
-  echo 'TAILSCALED_FLAGS="--tun userspace-networking"' >> "$PACKAGE_ROOT/tailscale-env"
+  current_flags="$(sed -n 's/^TAILSCALED_FLAGS="\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' "$ENV_FILE" | tail -n 1)"
+  case "$current_flags" in
+    *userspace-networking*) ;;
+    *)
+      echo "TUN device (/dev/net/tun) not found, defaulting to userspace networking."
+      set_tailscaled_flags "--tun userspace-networking${current_flags:+ ${current_flags}}"
+      ;;
+  esac
 fi
 
 # Run the setup script to ensure that Tailscale is installed
