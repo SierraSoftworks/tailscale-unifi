@@ -24,8 +24,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: ./tests/run.sh
       - run: ./build/package.sh ./ ./dist
-      # TODO: pin to the commit SHA of the gh-releases release which adds create/publish support
-      - uses: SierraSoftworks/gh-releases@v1.1.0
+      - uses: SierraSoftworks/gh-releases@a1d47201b036e0d4843d05ce56bde67dc262b95f # v1.1.0
         id: release
         with:
           token: "${{ secrets.GITHUB_TOKEN }}"
