@@ -6,19 +6,22 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   shellcheck:
     name: Shellcheck
     runs-on: ubuntu-slim
     steps:
       - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Register ShellCheck problem matchers
-        uses: lumaxis/shellcheck-problem-matchers@bf6e0860fd06e4910738c6160dcd2889146ce824
+        uses: lumaxis/shellcheck-problem-matchers@bf6e0860fd06e4910738c6160dcd2889146ce824 # v2.3.1
 
       - name: Run ShellCheck
-        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
         env:
           SHELLCHECK_OPTS: -e SC2148 -x
         with:
