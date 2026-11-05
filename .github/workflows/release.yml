@@ -1,3 +1,5 @@
+name: Release
+
 on:
   workflow_dispatch:
     inputs:
@@ -6,8 +8,6 @@ on:
         type: choice
         options: [patch, minor, major]
         default: patch
-
-name: Release
 
 permissions:
   contents: write
@@ -21,7 +21,7 @@ jobs:
     name: "Publish"
     runs-on: ubuntu-slim
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ./tests/run.sh
       - run: ./build/package.sh ./ ./dist
       - uses: SierraSoftworks/gh-releases@a1d47201b036e0d4843d05ce56bde67dc262b95f # v1.1.0
