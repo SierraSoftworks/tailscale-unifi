@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-slim
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: ./tests/run.sh
       - run: ./build/package.sh ./ ./dist
       - uses: SierraSoftworks/gh-releases@a1d47201b036e0d4843d05ce56bde67dc262b95f # v1.1.0
