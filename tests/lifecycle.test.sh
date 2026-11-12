@@ -29,13 +29,26 @@ mock "${WORKDIR}/tailscale" "1.1.0"
 
 # systemctl mock: records every call; `is-active` reports tailscaled as running
 # unless ${WORKDIR}/tailscaled.down exists, and `stop` fails when
-# ${WORKDIR}/systemctl.stop-fails exists.
+# ${WORKDIR}/systemctl.stop-fails exists.  `show` reports UniFi's restore unit
+# as activating while ${WORKDIR}/restore.polls holds a count above zero (each
+# poll decrements it; "forever" never finishes).
 cat > "${WORKDIR}/systemctl" <<EOF
 #!/usr/bin/env bash
 echo "\$*" >> "${WORKDIR}/systemctl.args"
 case "\$1" in
     "is-active") [ ! -e "${WORKDIR}/tailscaled.down" ] ;;
     "stop")      [ ! -e "${WORKDIR}/systemctl.stop-fails" ] ;;
+    "show")
+        polls="\$(cat "${WORKDIR}/restore.polls" 2>/dev/null || echo 0)"
+        if [ "\$polls" = "forever" ]; then
+            echo "ActiveState=activating"
+        elif [ "\$polls" -gt 0 ]; then
+            echo \$((polls - 1)) > "${WORKDIR}/restore.polls"
+            echo "ActiveState=activating"
+        else
+            echo "ActiveState=inactive"
+        fi
+        ;;
     *)           exit 0 ;;
 esac
 EOF
@@ -56,7 +69,8 @@ chmod +x "${WORKDIR}/apt"
 
 reset() {
     rm -f "${WORKDIR}"/*.args "${WORKDIR}/tailscaled.down" \
-          "${WORKDIR}/systemctl.stop-fails" "${WORKDIR}/apt.install-fails"
+          "${WORKDIR}/systemctl.stop-fails" "${WORKDIR}/apt.install-fails" \
+          "${WORKDIR}/restore.polls"
     cp "${PACKAGE_ROOT}/tailscale-env" "${WORKDIR}/tailscale-env"
     printf 'PORT="41641"\nFLAGS=""\n' > "${TAILSCALED_DEFAULTS_FILE}"
 }
@@ -124,3 +138,30 @@ for unit in tailscale-install.service tailscale-install.timer \
             tailscale-cert-renewal.service tailscale-cert-renewal.timer; do
     [[ ! -e "${SYSTEMD_UNIT_DIR}/${unit}" ]]; assert "uninstall removes ${unit}"
 done
+
+# ── apt waits for UniFi's post-update application restore ────────────────────
+# ubnt-dpkg-restore.service SIGKILLs whatever holds the dpkg lock when one of
+# its steps fails, so apt must not run until the restore has finished.
+grep -qx 'After=ubnt-dpkg-restore.service' "${PACKAGE_ROOT}/tailscale-install.service"; assert "tailscale-install.service is ordered after UniFi's application restore"
+[[ "$(grep -Ec '^(Wants|Requires|BindsTo)=.*ubnt-dpkg-restore' "${PACKAGE_ROOT}/tailscale-install.service" || true)" -eq 0 ]]; assert "tailscale-install.service does not pull in UniFi's application restore"
+
+reset
+echo 3 > "${WORKDIR}/restore.polls"
+output=$("${ROOT}/package/manage.sh" install! 1.2.0 2>&1); assert "install! succeeds once UniFi's application restore finishes"
+assert_contains "$output" "Waiting for UniFi application restore" "install! reports that it is waiting for UniFi's application restore"
+[[ "$(cat "${WORKDIR}/restore.polls")" = "0" ]]; assert "install! polls until UniFi's application restore has finished"
+assert_contains "$(cat "${WORKDIR}/apt.args")" "^install -y tailscale=1.2.0" "install! runs apt after UniFi's application restore finishes"
+
+reset
+output=$("${ROOT}/package/manage.sh" install! 1.2.0 2>&1); assert "install! succeeds when no UniFi application restore is running"
+assert_not_contains "$output" "Waiting for UniFi application restore" "install! does not wait when no UniFi application restore is running"
+
+reset
+echo forever > "${WORKDIR}/restore.polls"
+set +e
+output=$(UNIFI_RESTORE_TIMEOUT=30 "${ROOT}/package/manage.sh" install! 1.2.0 2>&1)
+status=$?
+set -e
+[[ $status -ne 0 ]]; assert "install! fails when UniFi's application restore outlasts the timeout"
+assert_contains "$output" "still running after 30s" "install! reports the restore timeout"
+[[ ! -e "${WORKDIR}/apt.args" ]]; assert "install! never runs apt while UniFi's application restore is running"
