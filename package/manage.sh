@@ -8,6 +8,8 @@ TAILSCALED_DEFAULTS_FILE="${TAILSCALED_DEFAULTS_FILE:-/etc/default/tailscaled}"
 TAILSCALED_ENVIRONMENT_MARKER="# tailscale-unifi managed environment"
 UNIFI_CONFIG_DIR="${UNIFI_CONFIG_DIR:-/data/unifi-core/config}"
 README_URL="https://github.com/SierraSoftworks/tailscale-unifi"
+UNIFI_RESTORE_UNIT="${UNIFI_RESTORE_UNIT:-ubnt-dpkg-restore.service}"
+UNIFI_RESTORE_TIMEOUT="${UNIFI_RESTORE_TIMEOUT:-1800}"
 
 # Best-effort identification of the UniFi hardware we are running on, used to
 # surface device-specific guidance from the README.  Returns the full model name
@@ -111,6 +113,35 @@ tailscale_start() {
   fi
 
   echo "Run tailscale up to configure the interface."
+}
+
+# wait_for_unifi_restore
+#
+# After a firmware update UniFi OS runs ubnt-dpkg-restore.service, a oneshot
+# unit that reinstalls UniFi's own apps with one apt run per package.  If our
+# apt takes the dpkg lock between two of those runs, UniFi's next restore steps
+# fail with "Could not get lock" and the restore SIGKILLs the lock holder, which
+# kills our install with status 137.  Waiting for the lock is not enough (the
+# lock is free between restore steps), so wait for the whole restore instead.
+#
+# tailscale-install.service is already ordered After= the restore; this covers
+# the on_boot.d hook and manual runs.  While a oneshot unit runs its ActiveState
+# is "activating".  Returns non-zero if the restore is still running after
+# UNIFI_RESTORE_TIMEOUT seconds, so the caller fails (and the systemd unit
+# retries later) instead of racing the restore.
+wait_for_unifi_restore() {
+  _restore_waited=0
+  while systemctl show -p ActiveState "$UNIFI_RESTORE_UNIT" 2>/dev/null | grep -qx 'ActiveState=activating'; do
+    if [ "$_restore_waited" -ge "$UNIFI_RESTORE_TIMEOUT" ]; then
+      echo "UniFi application restore (${UNIFI_RESTORE_UNIT}) is still running after ${UNIFI_RESTORE_TIMEOUT}s, not running apt alongside it"
+      return 1
+    fi
+    if [ "$_restore_waited" -eq 0 ]; then
+      echo "Waiting for UniFi application restore (${UNIFI_RESTORE_UNIT}) to finish before running apt..."
+    fi
+    sleep 10
+    _restore_waited=$((_restore_waited + 10))
+  done
 }
 
 tailscale_stop() {
@@ -223,6 +254,10 @@ tailscale_install() {
       curl -fsSL --ipv4 "https://pkgs.tailscale.com/${TAILSCALE_CHANNEL}/${ID}/${VERSION_CODENAME}.noarmor.gpg" | tee /usr/share/keyrings/tailscale-archive-keyring.gpg > /dev/null
       curl -fsSL --ipv4 "https://pkgs.tailscale.com/${TAILSCALE_CHANNEL}/${ID}/${VERSION_CODENAME}.tailscale-keyring.list" | tee /etc/apt/sources.list.d/tailscale.list > /dev/null
   fi
+
+  # Don't touch apt while UniFi is reinstalling its own apps after a firmware
+  # update; see wait_for_unifi_restore.
+  wait_for_unifi_restore || return 1
 
   echo "Updating package lists..."
   apt update || {

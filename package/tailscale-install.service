@@ -12,6 +12,15 @@ After=network-online.target
 # boot, which is why manage.sh copies it as a plain regular file into /etc
 # (always mounted) instead of symlinking it into /data.
 RequiresMountsFor=/data/tailscale
+# After a firmware update UniFi's ubnt-dpkg-restore.service ("UniFi Application
+# Restore") reinstalls its own apps (Protect and friends) with one apt run per
+# package.  If our apt grabs the dpkg lock between two of those runs, UniFi's
+# next steps fail and the restore SIGKILLs the lock holder (us, status=137).
+# Ordering after it makes us wait for the restore to finish.  After= only orders
+# the units; it does not pull the restore in, so on a normal boot (no restore
+# queued or running) it has no effect.  manage.sh also waits for the restore
+# before running apt, which covers the on_boot.d and manual paths.
+After=ubnt-dpkg-restore.service
 # Retry every 5 minutes until a run succeeds.  StartLimitIntervalSec=0 disables
 # systemd's start rate limiter so the unit never gives up (e.g. while the disk is
 # still mounting or the network is still coming up); together with the
