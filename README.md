@@ -85,6 +85,24 @@ apt update && apt install -y tailscale
 nohup /data/tailscale/manage.sh update!
 ```
 
+### Web UI panel (experimental)
+
+The installer can add a Tailscale card to UniFi Network's VPN settings, with a
+panel for status, login, updates and the common `tailscale set` options. It is
+not installed by default:
+
+```sh
+TAILSCALE_UI=true ./install.sh
+```
+
+```sh
+/data/tailscale/manage.sh ui status
+/data/tailscale/manage.sh ui disable
+```
+
+See [docs/web-ui.md](docs/web-ui.md) for how it works and what it changes on
+the console.
+
 ### Remove Tailscale
 
 To remove Tailscale, run the following command.

@@ -2,3 +2,8 @@
 
 *.sh text eol=lf
 tailscale-env text eol=lf
+# Everything that is copied onto the console must use LF line endings.
+package/** text eol=lf
+*.service text eol=lf
+*.timer text eol=lf
+*.path text eol=lf

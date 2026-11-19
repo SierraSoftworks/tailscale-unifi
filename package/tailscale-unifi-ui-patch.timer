@@ -1,0 +1,13 @@
+[Unit]
+Description=Tailscale web UI panel: periodic check
+Documentation=https://github.com/SierraSoftworks/tailscale-unifi
+
+[Timer]
+# Also check after boot and every 15 minutes in case a change was missed.
+# When the snippet is already in place this only runs nginx -t.
+OnBootSec=3min
+OnUnitActiveSec=15min
+Unit=tailscale-unifi-ui-patch.service
+
+[Install]
+WantedBy=timers.target

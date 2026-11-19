@@ -1,0 +1,26 @@
+[Unit]
+Description=Tailscale web UI panel: install nginx snippet
+Documentation=https://github.com/SierraSoftworks/tailscale-unifi
+# unifi-core empties /data/unifi-core/config/http when it starts, so this runs
+# after it.
+After=unifi-core.service nginx.service tailscale-unifi-ui.service
+RequiresMountsFor=/data/tailscale
+ConditionPathExists=/data/tailscale/ui-patch.sh
+# Limit retries if something keeps failing.
+StartLimitIntervalSec=600
+StartLimitBurst=20
+
+[Service]
+Type=oneshot
+# Let unifi-core finish writing its own snippets first.
+ExecStartPre=/bin/sleep 5
+ExecStart=/bin/sh /data/tailscale/ui-patch.sh apply
+TimeoutStartSec=3min
+Nice=10
+# Leave routine "Starting/Finished" lines out of the persistent journal;
+# ui-patch.sh logs installs, removals and failures at notice level.
+LogLevelMax=notice
+
+[Install]
+# Start whenever unifi-core starts. unifi-core does not depend on this unit.
+WantedBy=unifi-core.service

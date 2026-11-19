@@ -1,1 +1,4 @@
 dist/
+# Captured UniFi OS config used by tests/e2e (not redistributable)
+tests/e2e/fixture/
+dist/

@@ -9,6 +9,12 @@ trap 'rm -rf ${WORKDIR}' EXIT
 echo "Preparing temporary build directory"
 cp -R "${SOURCE}/package/" "${WORKDIR}/tailscale"
 cp "${SOURCE}/LICENSE" "${WORKDIR}/tailscale/LICENSE"
+git -C "${SOURCE}" describe --tags --always --dirty > "${WORKDIR}/tailscale/ui/VERSION" 2>/dev/null || echo dev > "${WORKDIR}/tailscale/ui/VERSION"
+
+# Strip CRs in case the checkout used CRLF line endings.
+find "${WORKDIR}/tailscale" -type f \( -name '*.sh' -o -name '*.js' -o -name '*.service' -o -name '*.timer' -o -name '*.path' -o -name 'tailscale-env' \) \
+  -exec sed -i 's/\r$//' {} +
+chmod 0755 "${WORKDIR}/tailscale/manage.sh" "${WORKDIR}/tailscale/ui-patch.sh" "${WORKDIR}/tailscale/ui/start.sh"
 
 mkdir -p "${WORKDIR}/on_boot.d"
 mv "${WORKDIR}/tailscale/on-boot.sh" "${WORKDIR}/on_boot.d/10-tailscaled.sh"

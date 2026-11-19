@@ -1,0 +1,32 @@
+[Unit]
+Description=Tailscale web UI panel: backend
+Documentation=https://github.com/SierraSoftworks/tailscale-unifi
+After=network.target tailscaled.service
+RequiresMountsFor=/data/tailscale
+ConditionPathExists=/data/tailscale/ui/start.sh
+ConditionPathExists=!/data/tailscale/ui.disabled
+StartLimitIntervalSec=600
+StartLimitBurst=10
+
+[Service]
+Type=simple
+# Runs as root to change Tailscale settings, run apt for updates and restart
+# tailscaled. Listens on a Unix socket readable by root and the nginx group,
+# not on a TCP port.
+ExecStart=/bin/sh /data/tailscale/ui/start.sh --socket /run/tailscale-unifi/ui.sock --socket-group nginx --manage /data/tailscale/manage.sh --env /data/tailscale/tailscale-env
+RuntimeDirectory=tailscale-unifi
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+Restart=on-failure
+RestartSec=10s
+# Low priority, small memory limit, and killed before UniFi services under
+# memory pressure.
+MemoryMax=96M
+CPUWeight=20
+Nice=10
+OOMScoreAdjust=500
+PrivateTmp=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=Tailscale web UI panel: watch nginx snippets
+Documentation=https://github.com/SierraSoftworks/tailscale-unifi
+
+[Path]
+# Re-check when UniFi rewrites its nginx snippets and when ui.disabled is
+# created or removed.
+PathChanged=/data/unifi-core/config/http
+PathChanged=/data/tailscale/ui.disabled
+Unit=tailscale-unifi-ui-patch.service
+TriggerLimitIntervalSec=60
+TriggerLimitBurst=10
+
+[Install]
+WantedBy=multi-user.target

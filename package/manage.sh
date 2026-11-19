@@ -217,6 +217,92 @@ repair_cert_renewal_units_if_configured() {
   done
 }
 
+# Optional web UI panel (TAILSCALE_UI="true" in tailscale-env): a backend in
+# ui/, run with UniFi's Node.js, and ui-patch.sh, which adds an nginx snippet
+# to UniFi's generated config. See docs/web-ui.md.
+UI_UNITS="tailscale-unifi-ui.service tailscale-unifi-ui-patch.service tailscale-unifi-ui-patch.path tailscale-unifi-ui-patch.timer"
+
+ui_enabled() {
+  [ "$(read_env_setting TAILSCALE_UI)" = "true" ]
+}
+
+# set_env_setting <key> <value>
+#
+# Replace or append KEY="VALUE" in tailscale-env, leaving other lines as they
+# are. Writes a temp file and renames it into place.
+set_env_setting() {
+  _env_file="${TAILSCALE_ROOT}/tailscale-env"
+  _tmp="${_env_file}.tmp.$$"
+  if [ -f "$_env_file" ]; then
+    grep -v "^$1=" "$_env_file" > "$_tmp" || true
+  else
+    : > "$_tmp"
+  fi
+  printf '%s="%s"\n' "$1" "$2" >> "$_tmp"
+  mv -f "$_tmp" "$_env_file"
+}
+
+ensure_ui_units() {
+  for _u in $UI_UNITS; do
+    install_systemd_unit "$_u"
+  done
+  systemctl daemon-reload
+  # shellcheck disable=SC2086
+  systemctl enable $UI_UNITS
+  systemctl start tailscale-unifi-ui.service tailscale-unifi-ui-patch.path tailscale-unifi-ui-patch.timer
+}
+
+# Firmware updates can remove units from /etc/systemd/system. Reinstall the UI
+# units on boot when the UI is enabled, without failing the boot handler.
+repair_ui_units_if_enabled() {
+  ui_enabled || return 0
+  [ -f "${PACKAGE_ROOT}/ui/start.sh" ] || return 0
+  ensure_ui_units || echo "Could not repair the Tailscale web UI units, continuing"
+}
+
+ui_enable() {
+  if [ ! -f "${PACKAGE_ROOT}/ui/start.sh" ] || [ ! -f "${PACKAGE_ROOT}/ui-patch.sh" ]; then
+    echo "The web UI is not installed. Re-run the installer with TAILSCALE_UI=true to install it."
+    return 1
+  fi
+  rm -f "${TAILSCALE_ROOT}/ui.disabled"
+  set_env_setting TAILSCALE_UI true
+  ensure_ui_units
+  # Load a new backend binary after an upgrade.
+  systemctl restart tailscale-unifi-ui.service || true
+  # Runs ui-patch.sh apply.
+  systemctl start tailscale-unifi-ui-patch.service || true
+  sh "${PACKAGE_ROOT}/ui-patch.sh" status
+}
+
+ui_disable() {
+  set_env_setting TAILSCALE_UI false
+  systemctl disable --now tailscale-unifi-ui-patch.path tailscale-unifi-ui-patch.timer tailscale-unifi-ui-patch.service 2>/dev/null || true
+  if [ -f "${PACKAGE_ROOT}/ui-patch.sh" ]; then
+    sh "${PACKAGE_ROOT}/ui-patch.sh" remove || true
+  fi
+  systemctl disable --now tailscale-unifi-ui.service 2>/dev/null || true
+  for _u in $UI_UNITS; do
+    rm -f "${SYSTEMD_UNIT_DIR}/${_u}"
+  done
+  systemctl daemon-reload || true
+  echo "Tailscale web UI disabled and removed from the UniFi OS web interface."
+}
+
+tailscale_ui() {
+  case "${1:-status}" in
+    enable) ui_enable ;;
+    disable) ui_disable ;;
+    status) sh "${PACKAGE_ROOT}/ui-patch.sh" status ;;
+    apply) sh "${PACKAGE_ROOT}/ui-patch.sh" apply --force ;;
+    remove) sh "${PACKAGE_ROOT}/ui-patch.sh" remove ;;
+    *)
+      echo "Usage: $0 ui {enable|disable|status|apply|remove}"
+      return 1
+      ;;
+  esac
+}
+
 sync_tailscaled_environment() {
   _environment_file="${TAILSCALE_ROOT}/tailscale-env"
 
@@ -706,6 +792,9 @@ case $1 in
     tailscale_install "$2"
     ;;
   "uninstall")
+    if ui_enabled || [ -f "${SYSTEMD_UNIT_DIR}/tailscale-unifi-ui.service" ]; then
+      ui_disable || true
+    fi
     tailscale_stop || true
     tailscale_uninstall
     ;;
@@ -741,6 +830,7 @@ case $1 in
     # below fail.
     ensure_systemd_units
     repair_cert_renewal_units_if_configured
+    repair_ui_units_if_enabled
 
     if ! command -v tailscale >/dev/null 2>&1; then
       tailscale_install
@@ -760,8 +850,12 @@ case $1 in
     shift
     tailscale_cert "$@"
     ;;
+  "ui")
+    shift
+    tailscale_ui "$@"
+    ;;
   *)
-    echo "Usage: $0 {status|start|stop|restart|install|uninstall|update|cert}"
+    echo "Usage: $0 {status|start|stop|restart|install|uninstall|update|cert|ui}"
     exit 1
     ;;
 esac

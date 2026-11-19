@@ -119,6 +119,20 @@ elif [ ! -e /dev/net/tun ]; then
   esac
 fi
 
+# The web UI panel is optional and off by default. It is installed with
+# TAILSCALE_UI=true, and kept on upgrades of a console where it is already
+# enabled. Otherwise its files are removed from the package directory.
+UI_ENABLED=false
+if [ "${TAILSCALE_UI:-}" = "true" ] || grep -q '^TAILSCALE_UI="true"' "$ENV_FILE"; then
+  UI_ENABLED=true
+else
+  rm -rf "${PACKAGE_ROOT}/ui"
+  for f in ui-patch.sh tailscale-unifi-ui.service tailscale-unifi-ui-patch.service \
+           tailscale-unifi-ui-patch.path tailscale-unifi-ui-patch.timer; do
+    rm -f "${PACKAGE_ROOT}/${f}"
+  done
+fi
+
 # Run the setup script to ensure that Tailscale is installed
 # shellcheck source=package/manage.sh
 "$PACKAGE_ROOT/manage.sh" install "${TAILSCALE_VERSION}"
@@ -126,3 +140,7 @@ fi
 # Start the tailscaled daemon
 # shellcheck source=package/manage.sh
 "$PACKAGE_ROOT/manage.sh" start
+
+if [ "$UI_ENABLED" = "true" ]; then
+  "$PACKAGE_ROOT/manage.sh" ui enable || echo "The web UI could not be enabled. Tailscale itself is installed."
+fi

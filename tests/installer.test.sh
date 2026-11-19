@@ -72,3 +72,27 @@ TAILSCALED_FLAGS="--verbose 1" sh "${ROOT}/install.sh" >/dev/null 2>&1; assert "
 [[ "$(grep -c '^TAILSCALED_FLAGS=' "$env_file")" -eq 1 ]]; assert "TAILSCALED_FLAGS appears once after repeated overrides"
 assert_contains "$(cat "$env_file")" '^TAILSCALED_FLAGS="--verbose 1"$' "the TAILSCALED_FLAGS override is applied"
 assert_contains "$(cat "$env_file")" "^TS_TUN_DISABLE_TCP_GRO=1$" "a TAILSCALED_FLAGS override keeps other settings"
+
+# ── web UI flag ───────────────────────────────────────────────────────────────
+mkdir -p "${PKG}/tailscale/ui"
+for f in ui/start.sh ui-patch.sh tailscale-unifi-ui.service; do
+    touch "${PKG}/tailscale/${f}"
+done
+tar czf "${WORKDIR}/tailscale-unifi.tgz" -C "$PKG" tailscale
+
+rm -rf "$PACKAGE_ROOT" "${WORKDIR}/manage.args"
+sh "${ROOT}/install.sh" >/dev/null 2>&1; assert "install.sh succeeds without TAILSCALE_UI"
+[ ! -e "${PACKAGE_ROOT}/ui" ] && [ ! -e "${PACKAGE_ROOT}/ui-patch.sh" ] && [ ! -e "${PACKAGE_ROOT}/tailscale-unifi-ui.service" ]; assert "the web UI is not installed by default"
+assert_not_contains "$(cat "${WORKDIR}/manage.args")" "^ui" "install.sh does not enable the web UI by default"
+
+rm -rf "$PACKAGE_ROOT" "${WORKDIR}/manage.args"
+TAILSCALE_UI=true sh "${ROOT}/install.sh" >/dev/null 2>&1; assert "install.sh succeeds with TAILSCALE_UI=true"
+assert_file_exists "${PACKAGE_ROOT}/ui/start.sh" "TAILSCALE_UI=true installs the web UI"
+assert_contains "$(cat "${WORKDIR}/manage.args")" "^ui enable" "TAILSCALE_UI=true enables the web UI"
+
+# An upgrade keeps the UI on a console where it was enabled.
+sed -i 's/^TAILSCALE_UI=.*/TAILSCALE_UI="true"/' "$env_file"
+rm -f "${WORKDIR}/manage.args"
+sh "${ROOT}/install.sh" >/dev/null 2>&1; assert "install.sh upgrade succeeds with the UI enabled"
+assert_file_exists "${PACKAGE_ROOT}/ui-patch.sh" "an upgrade keeps the web UI when it was enabled"
+assert_contains "$(cat "${WORKDIR}/manage.args")" "^ui enable" "an upgrade re-enables the web UI (new binary, units)"
